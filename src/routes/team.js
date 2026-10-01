@@ -46,7 +46,10 @@ r.get('/meta', (req, res) => res.json({
   today: today(),
 }));
 
-r.get('/users', wrap(async (req, res) => res.json(await db.all('SELECT id, username, name, email, role, last_login_at FROM users ORDER BY name'))));
+r.get('/users', wrap(async (req, res) => {
+  const list = await db.all('SELECT id, username, name, email, role, last_login_at FROM users ORDER BY name');
+  res.json(await Promise.all(list.map((u) => auth.withEffectiveRole(u))));
+}));
 r.put('/users/:id', auth.requireRole('admin'), wrap(async (req, res) => {
   const role = req.body.role;
   if (!['admin', 'lead', 'specialist'].includes(role)) return bad(res, 'Неизвестная роль');

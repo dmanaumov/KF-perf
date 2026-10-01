@@ -22,6 +22,10 @@ module.exports = {
   adminEmails: list([process.env.ADMIN_EMAILS, process.env.CEO_EMAILS].filter(Boolean).join(',')).map((s) => s.toLowerCase()),
   adminLogins: list(process.env.ADMIN_LOGINS).map((s) => s.toLowerCase()),
   mmSystemAdminsAreAdmins: bool(process.env.MM_SYSTEM_ADMINS_ARE_ADMINS, true),
+  // Роли из my.kontentferma: CEO → админ, лидер направления PERF → руководитель
+  kfMyUrl: (process.env.KF_MY_URL || '').replace(/\/+$/, ''),
+  kfMyApiKey: process.env.KF_MY_API_KEY || '',
+  kfMyDirection: process.env.KF_MY_DIRECTION || 'PERF',
   // Аварийный локальный вход (логин "admin"), если Mattermost недоступен.
   localAdminPassword: process.env.LOCAL_ADMIN_PASSWORD || '',
   sessionTtlHours: int(process.env.SESSION_TTL_HOURS, 24 * 7),

@@ -909,7 +909,8 @@
     main.innerHTML = `<div class="page-head"><div><h1>Команда</h1><div class="sub">Пользователи появляются после первого входа через Mattermost</div></div></div>
       <div class="card"><div class="table-wrap"><table class="t"><thead><tr><th>Сотрудник</th><th>Логин</th><th>Последний вход</th><th>Роль</th></tr></thead><tbody>
       ${S.users.map((u) => `<tr><td class="strong">${esc(u.name)}</td><td class="muted">${esc(u.username)}${u.email ? ' · ' + esc(u.email) : ''}</td><td class="faint">${F.ago(u.last_login_at)}</td>
-        <td><select class="inp" data-u="${esc(u.id)}" style="width:auto">${opt('specialist', 'Специалист — свои проекты', u.role)}${opt('lead', 'Руководитель — все проекты', u.role)}${opt('admin', 'Администратор', u.role)}</select></td></tr>`).join('')}
+        <td>${u.role_source ? `<span class="chip accent" title="Роль приходит из «Настроек» my.kontentferma (CEO / лидер направления Performance). Поменять — там.">${{ admin: 'Администратор', lead: 'Руководитель' }[u.role]} · из my.kontentferma</span>`
+          : `<select class="inp" data-u="${esc(u.id)}" style="width:auto">${opt('specialist', 'Специалист — свои проекты', u.role)}${opt('lead', 'Руководитель — все проекты', u.role)}${opt('admin', 'Администратор', u.role)}</select>`}</td></tr>`).join('')}
       </tbody></table></div></div>`;
     $$('[data-u]', main).forEach((s) => { s.onchange = async () => { try { await put(`/users/${encodeURIComponent(s.dataset.u)}`, { role: s.value }); toast('Роль обновлена'); } catch (e) { fail(e); route(); } }; });
   }

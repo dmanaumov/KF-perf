@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const config = require('./config');
 const db = require('./db');
 const { json } = require('./http');
+const kfmy = require('./kfmy');
 
 const COOKIE = 'perf_session';
 
@@ -71,7 +72,7 @@ async function login(loginId, password) {
     }
     if (!config.mattermostUrl) throw new Error('Неверный пароль');
   }
-  return upsertUser(await mattermostLogin(loginId, password));
+  return withEffectiveRole(await upsertUser(await mattermostLogin(loginId, password)));
 }
 
 async function createSession(res, user) {
@@ -87,13 +88,25 @@ async function destroySession(req, res) {
   res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
 }
 
+const RANK = { specialist: 0, lead: 1, admin: 2 };
+
+// Итоговая роль = максимум из роли в портале и роли из my.kontentferma.
+// Роль из my.kontentferma не сохраняем: сняли лидера там — здесь тоже снимется (≤5 мин).
+async function withEffectiveRole(u) {
+  if (!u) return u;
+  const ext = await kfmy.roleFor(u).catch(() => null);
+  if (ext && RANK[ext] > RANK[u.role]) return { ...u, role: ext, role_source: 'my.kontentferma', own_role: u.role };
+  return { ...u, own_role: u.role };
+}
+
 async function currentUser(req) {
   const id = parseCookies(req)[COOKIE];
   if (!id) return null;
-  return db.one(
+  const u = await db.one(
     `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id=$1 AND s.expires_at > now()`,
     [id]
   );
+  return withEffectiveRole(u);
 }
 
 function requireUser(req, res, next) {
@@ -132,4 +145,4 @@ async function cleanup() {
   await db.q('DELETE FROM sessions WHERE expires_at < now()');
 }
 
-module.exports = { login, createSession, destroySession, currentUser, requireUser, requireRole, canAccessProject, projectFilterSql, cleanup };
+module.exports = { withEffectiveRole, login, createSession, destroySession, currentUser, requireUser, requireRole, canAccessProject, projectFilterSql, cleanup };
