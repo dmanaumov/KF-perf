@@ -146,6 +146,26 @@ CREATE TABLE IF NOT EXISTS changelog (
 );
 CREATE INDEX IF NOT EXISTS changelog_project ON changelog (project_id, date DESC);
 
+-- «Секретики» — логины/пароли/доступы проекта (как в KF Approval).
+-- Отдельная таблица, зашифровано (APP_SECRET), читается только своим роутом.
+CREATE TABLE IF NOT EXISTS project_secrets (
+  project_id INT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  secrets_enc TEXT NOT NULL,
+  updated_by TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- История правок «Секретиков» (было/стало) — видят админ, лидер и менеджер проекта.
+CREATE TABLE IF NOT EXISTS project_secrets_log (
+  id SERIAL PRIMARY KEY,
+  project_id INT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  actor_id TEXT,
+  actor_name TEXT,
+  old_enc TEXT NOT NULL,
+  new_enc TEXT NOT NULL,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS project_secrets_log_project ON project_secrets_log (project_id, changed_at DESC);
+
 CREATE TABLE IF NOT EXISTS seo_keywords (
   id SERIAL PRIMARY KEY,
   project_id INT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

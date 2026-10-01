@@ -353,3 +353,31 @@ pre.code { padding: 10px 12px; white-space: pre-wrap; margin: 0; }
   .g-4 { grid-template-columns: minmax(0, 1fr); }
   .kpi .value { font-size: 24px; }
 }
+
+/* ---------- инструкции «как получить ключ» ---------- */
+details.guide { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+details.guide > summary { cursor: pointer; padding: 10px 14px; font-weight: 700; font-size: 13.5px; list-style: none; }
+details.guide > summary::-webkit-details-marker { display: none; }
+details.guide > summary::after { content: '▾'; float: right; color: var(--ink-3); }
+details.guide[open] > summary::after { content: '▴'; }
+.guide-body { padding: 0 16px 14px; font-size: 13.5px; line-height: 1.55; }
+.guide-body ol { margin: 4px 0 8px; padding-left: 20px; }
+.guide-body li { margin-bottom: 6px; }
+.guide-body a { color: var(--accent); font-weight: 600; }
+.guide-body .code { word-break: break-all; }
+.guide-note { background: var(--surface); border-radius: 10px; padding: 8px 10px; margin-top: 6px; font-size: 12.5px; color: var(--ink-2); }
+.guide-links { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12.5px; }
+
+/* ---------- «Секретики» ---------- */
+.tabs button[data-t="secrets"] { color: var(--ink-3); }
+.tabs button[data-t="secrets"].filled { color: var(--bad); }
+.tabs button[data-t="secrets"].active { color: var(--bad); border-bottom-color: var(--bad); }
+.secrets-card { border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
+textarea.secrets-text { min-height: 340px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.55; }
+.sec-log-entry { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 8px; background: var(--surface-2); }
+.sec-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sec-lbl { font-size: 10.5px; font-weight: 800; text-transform: uppercase; color: var(--ink-3); margin-bottom: 3px; }
+.sec-diff pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--surface); border-radius: 8px; padding: 6px 8px; max-height: 180px; overflow: auto; }
+.sec-diff pre.old { color: var(--bad); }
+.sec-diff pre.new { color: var(--good); }
+@media (max-width: 520px) { .sec-diff { grid-template-columns: 1fr; } }

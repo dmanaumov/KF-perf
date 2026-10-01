@@ -194,7 +194,9 @@ r.post('/projects', wrap(async (req, res) => {
 r.get(P, loadProject, wrap(async (req, res) => {
   const members = await db.all('SELECT u.id, u.name, u.username FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=$1', [req.project.id]);
   const manager = req.project.manager_id ? await db.one('SELECT id, name FROM users WHERE id=$1', [req.project.manager_id]) : null;
-  res.json({ ...req.project, members, manager, canManage: canManage(req.user) });
+  const sec = await db.one('SELECT secrets_enc FROM project_secrets WHERE project_id=$1', [req.project.id]);
+  const hasSecrets = !!(sec && (() => { try { return secrets.decrypt(sec.secrets_enc).v; } catch (e) { return true; } })());
+  res.json({ ...req.project, members, manager, canManage: canManage(req.user), has_secrets: hasSecrets });
 }));
 
 r.put(P, loadProject, wrap(async (req, res) => {
@@ -442,6 +444,43 @@ r.post(`${P}/changelog`, loadProject, wrap(async (req, res) => {
 r.delete(`${P}/changelog/:cid`, loadProject, wrap(async (req, res) => {
   await db.q('DELETE FROM changelog WHERE id=$1 AND project_id=$2', [req.params.cid, req.project.id]);
   res.json({ ok: true });
+}));
+
+// ---------- «Секретики» проекта ----------
+// Читать и править может любой, у кого есть доступ к проекту (команда проекта,
+// лидер, админ). Историю правок (было/стало) видят только админ, лидер и
+// менеджер проекта — защита от случайной порчи. Наружу (кабинет клиента,
+// сводки, cron) секреты не попадают никогда: только эти два роута.
+const canSeeSecretsLog = (req) => canManage(req.user) || req.project.manager_id === req.user.id;
+const dec = (v) => { try { return secrets.decrypt(v).v || ''; } catch (e) { return '⚠ не удалось расшифровать (сменили APP_SECRET?)'; } };
+
+r.get(`${P}/secrets`, loadProject, wrap(async (req, res) => {
+  const row = await db.one('SELECT s.secrets_enc, s.updated_at, u.name AS updated_by_name FROM project_secrets s LEFT JOIN users u ON u.id=s.updated_by WHERE s.project_id=$1', [req.project.id]);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ secrets: row ? dec(row.secrets_enc) : '', updated_at: row && row.updated_at, updated_by: row && row.updated_by_name, canSeeLog: canSeeSecretsLog(req) });
+}));
+
+r.put(`${P}/secrets`, loadProject, wrap(async (req, res) => {
+  const text = String((req.body && req.body.secrets) || '');
+  if (text.length > 100000) return bad(res, 'Слишком длинный текст (больше 100 000 символов)');
+  const cur = await db.one('SELECT secrets_enc FROM project_secrets WHERE project_id=$1', [req.project.id]);
+  const old = cur ? dec(cur.secrets_enc) : '';
+  if (old === text) return res.json({ ok: true, unchanged: true });
+  await db.q(
+    `INSERT INTO project_secrets (project_id, secrets_enc, updated_by, updated_at) VALUES ($1,$2,$3, now())
+     ON CONFLICT (project_id) DO UPDATE SET secrets_enc=EXCLUDED.secrets_enc, updated_by=EXCLUDED.updated_by, updated_at=now()`,
+    [req.project.id, secrets.encrypt({ v: text }), req.user.id]
+  );
+  await db.q('INSERT INTO project_secrets_log (project_id, actor_id, actor_name, old_enc, new_enc) VALUES ($1,$2,$3,$4,$5)',
+    [req.project.id, req.user.id, req.user.name || req.user.username, secrets.encrypt({ v: old }), secrets.encrypt({ v: text })]);
+  res.json({ ok: true });
+}));
+
+r.get(`${P}/secrets/log`, loadProject, wrap(async (req, res) => {
+  if (!canSeeSecretsLog(req)) return bad(res, 'Историю правок видят админ, лидер Performance и менеджер проекта', 403);
+  const rows = await db.all('SELECT id, actor_name, old_enc, new_enc, changed_at FROM project_secrets_log WHERE project_id=$1 ORDER BY changed_at DESC LIMIT 100', [req.project.id]);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(rows.map((r2) => ({ id: r2.id, actor: r2.actor_name, changed_at: r2.changed_at, old: dec(r2.old_enc), new: dec(r2.new_enc) })));
 }));
 
 // ---------- SEO ----------

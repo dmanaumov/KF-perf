@@ -321,7 +321,7 @@
     const tabs = [['summary', 'Сводка'], ['campaigns', 'Кампании'], ['tasks', 'Задачи']];
     if (p.services.includes('seo')) tabs.push(['seo', 'SEO']);
     if (p.services.includes('geo')) tabs.push(['geo', 'GEO / AI']);
-    tabs.push(['log', 'Журнал'], ['channels', 'Каналы и данные'], ['plan', 'План']);
+    tabs.push(['log', 'Журнал'], ['channels', 'Каналы и данные'], ['plan', 'План'], ['secrets', '🔒 Секретики']);
     main.innerHTML = `
       <div class="crumbs"><a href="#/">Обзор</a> / ${esc(p.client_name || 'Проект')}</div>
       <div class="page-head">
@@ -331,10 +331,11 @@
       <div class="tabs" id="ptabs">${tabs.map(([k, l]) => `<button data-t="${k}" class="${k === tab ? 'active' : ''}">${l}</button>`).join('')}</div>
       <div id="pbody"><div class="empty">Загрузка…</div></div>`;
     $$('#ptabs button').forEach((b) => { b.onclick = () => { location.hash = `#/p/${id}/${b.dataset.t}`; }; });
+    if (p.has_secrets) $('#ptabs [data-t="secrets"]').classList.add('filled');
     $('#pset').onclick = () => projectModal(p);
     $('#clink').onclick = () => clientLinkModal(p);
     const body = $('#pbody');
-    const T = { summary: tabSummary, campaigns: tabCampaigns, tasks: tabTasks, seo: tabSeo, geo: tabGeo, log: tabLog, channels: tabChannels, plan: tabPlan };
+    const T = { summary: tabSummary, campaigns: tabCampaigns, tasks: tabTasks, seo: tabSeo, geo: tabGeo, log: tabLog, channels: tabChannels, plan: tabPlan, secrets: tabSecrets };
     await (T[tab] || tabSummary)(body, p);
   }
 
@@ -739,6 +740,49 @@
     $$('[data-d]', body).forEach((b) => { b.onclick = async () => { if (!confirm('Удалить запись?')) return; await del(`/projects/${p.id}/changelog/${b.dataset.d}`).catch(fail); tabLog(body, p); }; });
   }
 
+  // ---------- «Секретики» ----------
+  async function tabSecrets(body, p) {
+    const d = await get(`/projects/${p.id}/secrets`);
+    body.innerHTML = `<div class="card secrets-card">
+      <div class="card-head"><h3>🔒 Секретики — критичная информация проекта</h3>
+        <span class="hint">${d.updated_at ? `изменено ${F.dateTime(d.updated_at)}${d.updated_by ? ' · ' + esc(d.updated_by) : ''}` : 'пока пусто'}</span></div>
+      <p class="muted" style="margin:0 0 12px;font-size:13px">Логины, почты, пароли, доступы к кабинетам и сайту — всё, что раньше пересылали в чатах. Видит и правит команда проекта. Хранится зашифрованным отдельно от остальных данных, клиенту не показывается; каждая правка попадает в историю (её видят админ, лидер Performance и менеджер проекта).</p>
+      <textarea class="inp secrets-text" id="sec-text" spellcheck="false" autocomplete="off" placeholder="Например:&#10;&#10;Хостинг — login@example.com / пароль&#10;Регистратор домена — …&#10;Яндекс Директ (логин клиента) — …&#10;Instagram Business — …">${esc(d.secrets)}</textarea>
+      <div class="row between mt">
+        <div class="row">${d.canSeeLog ? '<button class="btn ghost sm" id="sec-log-btn">🕓 История правок</button>' : ''}<span class="faint" id="sec-state" style="font-size:12px"></span></div>
+        <button class="btn primary" id="sec-save">Сохранить</button>
+      </div>
+      <div id="sec-log" class="hidden mt"></div>
+    </div>`;
+    const ta = $('#sec-text');
+    let saved = d.secrets;
+    const state = () => { $('#sec-state').textContent = ta.value !== saved ? 'есть несохранённые изменения' : ''; };
+    ta.addEventListener('input', state);
+    const save = async () => {
+      try { await put(`/projects/${p.id}/secrets`, { secrets: ta.value }); saved = ta.value; state(); toast('Секретики сохранены'); if (!$('#sec-log').classList.contains('hidden')) loadLog(); } catch (e) { fail(e); }
+    };
+    $('#sec-save').onclick = save;
+    ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); save(); } });
+    const loadLog = async () => {
+      const box = $('#sec-log');
+      box.innerHTML = '<div class="faint">Загружаем…</div>';
+      try {
+        const log = await get(`/projects/${p.id}/secrets/log`);
+        box.innerHTML = log.length ? log.map((e) => `<div class="sec-log-entry">
+            <div class="row between" style="font-size:12px;margin-bottom:6px"><b>${esc(e.actor || '—')}</b><span class="faint">${F.dateTime(e.changed_at)}</span></div>
+            <div class="sec-diff"><div><div class="sec-lbl">Было</div><pre class="old">${e.old ? esc(e.old) : '(пусто)'}</pre></div><div><div class="sec-lbl">Стало</div><pre class="new">${e.new ? esc(e.new) : '(пусто)'}</pre></div></div>
+          </div>`).join('') : '<div class="faint">Правок пока не было.</div>';
+      } catch (e) { box.innerHTML = ''; fail(e); }
+    };
+    if ($('#sec-log-btn')) $('#sec-log-btn').onclick = () => {
+      const box = $('#sec-log');
+      const open = box.classList.toggle('hidden') === false;
+      $('#sec-log-btn').textContent = open ? '🕓 Скрыть историю' : '🕓 История правок';
+      if (open) loadLog();
+    };
+    window.onbeforeunload = () => (ta.isConnected && ta.value !== saved ? true : undefined);
+  }
+
   // ---------- channels / integrations ----------
   async function tabChannels(body, p) {
     const [list, runs] = await Promise.all([get(`/projects/${p.id}/integrations`), get(`/projects/${p.id}/syncs`)]);
@@ -808,8 +852,8 @@
     const fieldsHtml = () => {
       const c = S.meta.connectors[platform];
       const pl = plat(platform);
-      if (!c) return `<div class="alert low"><span class="lvl">CSV</span><div>У «${esc(pl.label)}» нет открытого API статистики. Данные загружаются выгрузкой CSV из кабинета или вводом по дням — кнопки «CSV» и «＋ день» в списке каналов.</div></div>`;
-      return `<div class="alert low"><span class="lvl">API</span><div>Данные будут подтягиваться автоматически. Как получить доступы — раздел <a href="#/help" target="_blank">«Подключения»</a>.</div></div>
+      if (!c) return `<div class="alert low"><span class="lvl">CSV</span><div>У «${esc(pl.label)}» нет открытого API статистики. Данные загружаются выгрузкой CSV из кабинета или вводом по дням — кнопки «CSV» и «＋ день» в списке каналов.</div></div>${KF_GUIDES.html(platform, { open: true })}`;
+      return `<div class="alert low"><span class="lvl">API</span><div>Данные будут подтягиваться автоматически.</div></div>${KF_GUIDES.html(platform, { open: isNew })}
         ${c.fields.map((f) => `<label class="f">${esc(f.label)}${f.secret && i && i.credKeys.includes(f.key) ? ' <span class="help">сохранено — оставьте пустым, чтобы не менять</span>' : ''}
           <input class="inp" name="cred_${f.key}" ${f.secret ? 'type="password" autocomplete="new-password"' : ''} value="${f.secret ? '' : ''}" ${f.required && isNew ? 'required' : ''}></label>`).join('')}
         ${c.settingsFields.map((f) => `<label class="f">${esc(f.label)}<input class="inp" name="set_${f.key}" value="${esc((i && i.settings && i.settings[f.key]) || '')}" placeholder="${esc(f.placeholder || '')}"></label>`).join('')}`;
@@ -917,22 +961,13 @@
 
   // ---------- help ----------
   async function pageHelp(main) {
-    const ai = S.meta.aiEngines;
-    main.innerHTML = `<div class="page-head"><div><h1>Подключения</h1><div class="sub">Откуда берутся данные и как подключить кабинеты</div></div></div>
-      <div class="grid g-2">
-        <div class="card"><h3>Яндекс Директ</h3><p class="muted">Reports API v5. Нужен OAuth-токен приложения с доступом <span class="code">direct:api</span> (oauth.yandex.ru → создать приложение → получить токен под логином агентства или клиента). Для агентского аккаунта укажите Client-Login клиента. Лиды — конверсии по целям: задайте ID целей Метрики или оставьте пустым (приоритетные цели кампаний).</p></div>
-        <div class="card"><h3>Яндекс Метрика</h3><p class="muted">OAuth-токен с правом <span class="code">metrika:read</span> и номер счётчика. Даёт трафик по источникам (органика для SEO) и переходы из AI-сервисов (для GEO). В бюджет не суммируется.</p></div>
-        <div class="card"><h3>VK Реклама</h3><p class="muted">ads.vk.com → Настройки → API: создайте токен (агентский или клиентский, client_credentials). Берётся статистика по кампаниям по дням, лиды — цели.</p></div>
-        <div class="card"><h3>Instagram / Meta</h3><p class="muted">Токен System User в Business Manager с правом <span class="code">ads_read</span> и ID рекламного аккаунта. Лиды — действия lead / сообщения (настраивается). Сервер должен иметь доступ к graph.facebook.com.</p></div>
-        <div class="card"><h3>Google Ads</h3><p class="muted">Developer token и OAuth-клиент агентства — один раз в разделе «Сервисы и ключи» (лидер Performance). На подключение канала — refresh token и Customer ID клиента (и MCC, если через управляющий аккаунт).</p></div>
-        <div class="card"><h3>Telegram Ads, Авито, 2ГИС, Я.Бизнес, Ozon, WB</h3><p class="muted">Открытого API статистики нет или он закрыт партнёрством — выгрузка CSV из кабинета раз в неделю или ввод по дням. Колонки распознаются автоматически.</p></div>
-        <div class="card"><h3>SEO-позиции</h3><p class="muted">Яндекс — через Yandex Search API, ключ в разделе «Сервисы и ключи»: ${S.meta.seoConfigured ? '<span class="chip good">настроено</span>' : '<span class="chip bad">не настроено</span>'}. Google — импорт CSV из Topvisor / SE Ranking.</p></div>
-        <div class="card"><h3>GEO — AI-движки</h3><p class="muted">Ключи задаёт лидер Performance в разделе «Сервисы и ключи». Каждый промпт проекта отправляется в каждый движок, ответ разбирается: упомянут ли бренд, на каком месте, есть ли сайт в источниках, кто из конкурентов назван.</p>
-          <div class="row">${ai.map((e) => `<span class="chip ${e.enabled ? 'good' : ''}">${e.label}${e.enabled ? ' ✓' : ''}</span>`).join('')}</div></div>
-      </div>
-      <div class="card mt"><h3>Автообновление</h3><p class="muted" style="margin-bottom:0">Встроенный планировщик: реклама — каждые несколько часов (последние дни перезаписываются, т.к. конверсии «доезжают»), SEO — раз в сутки, GEO — раз в неделю. Интервалы меняются в разделе «Сервисы и ключи». Для n8n есть эндпоинты <span class="code">POST /api/cron/sync | seo | geo</span> с заголовком <span class="code">X-Api-Key</span>.</p></div>`;
+    const section = (title, sub, keys) => `<div class="card mt"><h2>${title}</h2><p class="muted" style="margin:4px 0 14px">${sub}</p><div class="stack" style="gap:10px">${keys.map((k) => KF_GUIDES.html(k)).join('')}</div></div>`;
+    main.innerHTML = `<div class="page-head"><div><h1>Подключения</h1><div class="sub">Где и как получить каждый ключ. Те же инструкции открываются прямо в формах ввода.</div></div></div>
+      ${section('1. Каналы клиента', 'Вводятся в проекте → «Каналы и данные» → «Подключить канал». Делает специалист проекта.', ['yandex_direct', 'metrika', 'google_ads', 'vk_ads', 'meta', 'telegram_ads', 'avito', 'twogis', 'yandex_maps', 'ozon', 'wb', 'other'])}
+      ${section('2. Общие ключи агентства', 'Вводятся один раз в разделе «Сервисы и ключи». Делает лидер Performance.', ['seo', 'google', 'meta_settings'])}
+      ${section('3. AI-движки для GEO', 'Тоже «Сервисы и ключи». Достаточно 2–3 движков; Perplexity и ChatGPT — самые показательные.', ['ai_perplexity', 'ai_openai', 'ai_gemini', 'ai_yandexgpt', 'ai_anthropic', 'ai_deepseek'])}
+      <div class="card mt"><h3>Автообновление</h3><p class="muted" style="margin-bottom:0">Реклама и Метрика — каждые несколько часов (последние дни перезаписываются, т.к. конверсии «доезжают»), SEO — раз в сутки, GEO — раз в неделю. Интервалы — в «Сервисы и ключи». Для n8n: <span class="code">POST /api/cron/sync | seo | geo</span> с заголовком <span class="code">X-Api-Key</span>.</p></div>`;
   }
-
 
   // ---------- settings (лидер Performance) ----------
   async function pageSettings(main) {
@@ -957,14 +992,15 @@
           const key = ef.find((f) => f.secret);
           return `<div style="border-top:1px solid var(--line);padding:14px 0">
             <div class="row between" style="margin-bottom:8px"><b>${esc(key.label.split(' — ')[0])}</b><div class="row">${key.isSet ? '<span class="chip good">подключён</span>' : e === 'yandexgpt' && d.fields.find((f) => f.key === 'YANDEX_SEARCH_API_KEY').isSet ? '<span class="chip accent">ключ Search API</span>' : '<span class="chip">выключен</span>'}${testBtn(e)}</div></div>
-            <div class="three">${ef.map((f) => input({ ...f, label: f.secret ? 'API-ключ' : f.label })).join('')}</div></div>`;
+            ${KF_GUIDES.html(KF_GUIDES.AI_GUIDE[e], { compact: true })}
+            <div class="three" style="margin-top:10px">${ef.map((f) => input({ ...f, label: f.secret ? 'API-ключ' : f.label })).join('')}</div></div>`;
         }).join('');
       } else {
         inner = `<div class="${fs.length > 2 ? 'three' : 'two'}">${fs.map(input).join('')}</div>`;
       }
       return `<form class="card form" data-g="${g.id}">
         <div class="card-head" style="margin-bottom:0"><h3>${esc(g.label)}</h3><div class="row">${g.id === 'seo' ? testBtn('seo') : g.id === 'google' ? testBtn('google') : ''}<button class="btn primary sm">Сохранить</button></div></div>
-        <p class="muted" style="margin:0;font-size:13px">${esc(g.help)}</p>${inner}</form>`;
+        <p class="muted" style="margin:0;font-size:13px">${esc(g.help)}</p>${KF_GUIDES.GROUP_GUIDE[g.id] ? KF_GUIDES.html(KF_GUIDES.GROUP_GUIDE[g.id], { compact: true }) : ''}${inner}</form>`;
     };
     main.innerHTML = `<div class="page-head"><div><h1>Сервисы и ключи</h1><div class="sub">Общие доступы агентства — настраивает лидер Performance. Ключи хранятся зашифрованными и после сохранения не показываются.</div></div></div>
       <div class="stack">${d.groups.map(groupHtml).join('')}</div>
