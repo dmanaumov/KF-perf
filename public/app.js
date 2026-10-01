@@ -83,6 +83,7 @@
     seo: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
     geo: '<path d="M12 3l2.2 5.3L20 9l-4.4 3.8L17 19l-5-3-5 3 1.4-6.2L4 9l5.8-.7z"/>',
     team: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.6c1.8.7 3 2.5 3.5 5.4"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
     help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>',
   };
   const icon = (n) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
@@ -126,6 +127,7 @@
           <a class="nav-item" href="#/seo" data-nav="seo">${icon('seo')}SEO</a>
           <a class="nav-item" href="#/geo" data-nav="geo">${icon('geo')}GEO / AI</a>
           ${S.me.role === 'admin' ? `<a class="nav-item" href="#/team" data-nav="team">${icon('team')}Команда</a>` : ''}
+          ${canManage() ? `<a class="nav-item" href="#/settings" data-nav="settings">${icon('key')}Сервисы и ключи</a>` : ''}
           <a class="nav-item" href="#/help" data-nav="help">${icon('help')}Подключения</a>
           <div class="nav-sep">Проекты</div>
           <div id="navp"></div>
@@ -168,6 +170,7 @@
       else if (parts[0] === 'geo') await pageGeoAll(main);
       else if (parts[0] === 'team') await pageTeam(main);
       else if (parts[0] === 'help') await pageHelp(main);
+      else if (parts[0] === 'settings') await pageSettings(main);
       else if (parts[0] === 'p') await pageProject(main, +parts[1], parts[2] || 'summary');
       else main.innerHTML = '<div class="empty">Страница не найдена</div>';
     } catch (e) {
@@ -656,7 +659,7 @@
       <div class="row between" style="margin-bottom:16px">
         <div class="faint">${g.lastCheck ? `Последняя проверка: ${F.dateTime(g.lastCheck)}` : 'Проверок ещё не было'}${g.lastRun && g.lastRun.status === 'running' ? ' · идёт проверка…' : ''}
           · движки: ${g.enginesAvailable.map((e) => `<span class="chip ${e.enabled ? 'good' : ''}" style="padding:1px 8px">${e.label}</span>`).join(' ')}</div>
-        <div class="row"><button class="btn" id="gchk" ${enabled.length ? '' : 'disabled title="Задайте ключи AI-движков в env"'}>Проверить сейчас</button><button class="btn primary" id="gadd">＋ Промпты</button></div>
+        <div class="row"><button class="btn" id="gchk" ${enabled.length ? '' : 'disabled title="Лидер Performance подключает AI-движки в разделе «Сервисы и ключи»"'}>Проверить сейчас</button><button class="btn primary" id="gadd">＋ Промпты</button></div>
       </div>
       <div class="grid g-4">
         <div class="card kpi"><div class="label">Видимость в AI</div><div class="value">${F.pct(g.visibility)}</div><div class="foot">ответов упоминают бренд</div></div>
@@ -920,13 +923,73 @@
         <div class="card"><h3>Яндекс Метрика</h3><p class="muted">OAuth-токен с правом <span class="code">metrika:read</span> и номер счётчика. Даёт трафик по источникам (органика для SEO) и переходы из AI-сервисов (для GEO). В бюджет не суммируется.</p></div>
         <div class="card"><h3>VK Реклама</h3><p class="muted">ads.vk.com → Настройки → API: создайте токен (агентский или клиентский, client_credentials). Берётся статистика по кампаниям по дням, лиды — цели.</p></div>
         <div class="card"><h3>Instagram / Meta</h3><p class="muted">Токен System User в Business Manager с правом <span class="code">ads_read</span> и ID рекламного аккаунта. Лиды — действия lead / сообщения (настраивается). Сервер должен иметь доступ к graph.facebook.com.</p></div>
-        <div class="card"><h3>Google Ads</h3><p class="muted">Developer token, OAuth client ID/secret — один раз в переменных окружения сервера. На подключение — refresh token и Customer ID (и MCC, если через управляющий аккаунт).</p></div>
+        <div class="card"><h3>Google Ads</h3><p class="muted">Developer token и OAuth-клиент агентства — один раз в разделе «Сервисы и ключи» (лидер Performance). На подключение канала — refresh token и Customer ID клиента (и MCC, если через управляющий аккаунт).</p></div>
         <div class="card"><h3>Telegram Ads, Авито, 2ГИС, Я.Бизнес, Ozon, WB</h3><p class="muted">Открытого API статистики нет или он закрыт партнёрством — выгрузка CSV из кабинета раз в неделю или ввод по дням. Колонки распознаются автоматически.</p></div>
-        <div class="card"><h3>SEO-позиции</h3><p class="muted">Яндекс — через Yandex Search API (те же ключи, что в PR-мониторинге): ${S.meta.seoConfigured ? '<span class="chip good">настроено</span>' : '<span class="chip bad">не настроено</span>'}. Google — импорт CSV из Topvisor / SE Ranking.</p></div>
-        <div class="card"><h3>GEO — AI-движки</h3><p class="muted">Ключи API в переменных окружения сервера. Каждый промпт проекта отправляется в каждый движок, ответ разбирается: упомянут ли бренд, на каком месте, есть ли сайт в источниках, кто из конкурентов назван.</p>
+        <div class="card"><h3>SEO-позиции</h3><p class="muted">Яндекс — через Yandex Search API, ключ в разделе «Сервисы и ключи»: ${S.meta.seoConfigured ? '<span class="chip good">настроено</span>' : '<span class="chip bad">не настроено</span>'}. Google — импорт CSV из Topvisor / SE Ranking.</p></div>
+        <div class="card"><h3>GEO — AI-движки</h3><p class="muted">Ключи задаёт лидер Performance в разделе «Сервисы и ключи». Каждый промпт проекта отправляется в каждый движок, ответ разбирается: упомянут ли бренд, на каком месте, есть ли сайт в источниках, кто из конкурентов назван.</p>
           <div class="row">${ai.map((e) => `<span class="chip ${e.enabled ? 'good' : ''}">${e.label}${e.enabled ? ' ✓' : ''}</span>`).join('')}</div></div>
       </div>
-      <div class="card mt"><h3>Автообновление</h3><p class="muted" style="margin-bottom:0">Встроенный планировщик: реклама — каждые несколько часов (последние 7 дней перезаписываются, т.к. конверсии «доезжают»), SEO — раз в сутки, GEO — раз в неделю. Для n8n есть эндпоинты <span class="code">POST /api/cron/sync | seo | geo</span> с заголовком <span class="code">X-Api-Key</span>.</p></div>`;
+      <div class="card mt"><h3>Автообновление</h3><p class="muted" style="margin-bottom:0">Встроенный планировщик: реклама — каждые несколько часов (последние дни перезаписываются, т.к. конверсии «доезжают»), SEO — раз в сутки, GEO — раз в неделю. Интервалы меняются в разделе «Сервисы и ключи». Для n8n есть эндпоинты <span class="code">POST /api/cron/sync | seo | geo</span> с заголовком <span class="code">X-Api-Key</span>.</p></div>`;
+  }
+
+
+  // ---------- settings (лидер Performance) ----------
+  async function pageSettings(main) {
+    const d = await get('/settings');
+    const SRC = { db: '<span class="chip good svc">задано</span>', env: '<span class="chip svc" title="Значение из переменных окружения сервера — можно переопределить здесь">из env</span>', default: '' };
+    const input = (f) => {
+      if (f.type === 'bool') return `<label class="checkline" style="margin-top:8px"><input type="checkbox" name="${f.key}" ${f.value ? 'checked' : ''}>${esc(f.label)}</label>`;
+      if (f.secret) return `<label class="f"><span class="row" style="gap:6px">${esc(f.label)} ${SRC[f.source]}</span>
+          <input class="inp" name="${f.key}" type="password" autocomplete="new-password" placeholder="${f.masked ? esc(f.masked) : 'не задан'}" title="Пустое поле при сохранении — ключ не меняется">
+          ${f.help ? `<span class="help">${esc(f.help)}</span>` : ''}
+          ${f.source === 'db' ? `<a href="#" class="help" style="align-self:flex-start;color:var(--bad)" data-clear="${f.key}">удалить ключ</a>` : ''}</label>`;
+      return `<label class="f"><span class="row" style="gap:6px">${esc(f.label)} ${SRC[f.source]}</span><input class="inp" name="${f.key}" value="${esc(f.value ?? '')}" ${f.type === 'int' ? 'inputmode="numeric"' : ''}>${f.help ? `<span class="help">${esc(f.help)}</span>` : ''}</label>`;
+    };
+    const testBtn = (svc) => `<button type="button" class="btn sm" data-test="${svc}">Проверить</button>`;
+    const groupHtml = (g) => {
+      const fs = d.fields.filter((f) => f.group === g.id);
+      let inner;
+      if (g.id === 'ai') {
+        const engines = [...new Set(fs.map((f) => f.engine))];
+        inner = engines.map((e) => {
+          const ef = fs.filter((f) => f.engine === e);
+          const key = ef.find((f) => f.secret);
+          return `<div style="border-top:1px solid var(--line);padding:14px 0">
+            <div class="row between" style="margin-bottom:8px"><b>${esc(key.label.split(' — ')[0])}</b><div class="row">${key.isSet ? '<span class="chip good">подключён</span>' : e === 'yandexgpt' && d.fields.find((f) => f.key === 'YANDEX_SEARCH_API_KEY').isSet ? '<span class="chip accent">ключ Search API</span>' : '<span class="chip">выключен</span>'}${testBtn(e)}</div></div>
+            <div class="three">${ef.map((f) => input({ ...f, label: f.secret ? 'API-ключ' : f.label })).join('')}</div></div>`;
+        }).join('');
+      } else {
+        inner = `<div class="${fs.length > 2 ? 'three' : 'two'}">${fs.map(input).join('')}</div>`;
+      }
+      return `<form class="card form" data-g="${g.id}">
+        <div class="card-head" style="margin-bottom:0"><h3>${esc(g.label)}</h3><div class="row">${g.id === 'seo' ? testBtn('seo') : g.id === 'google' ? testBtn('google') : ''}<button class="btn primary sm">Сохранить</button></div></div>
+        <p class="muted" style="margin:0;font-size:13px">${esc(g.help)}</p>${inner}</form>`;
+    };
+    main.innerHTML = `<div class="page-head"><div><h1>Сервисы и ключи</h1><div class="sub">Общие доступы агентства — настраивает лидер Performance. Ключи хранятся зашифрованными и после сохранения не показываются.</div></div></div>
+      <div class="stack">${d.groups.map(groupHtml).join('')}</div>
+      <p class="faint" style="font-size:12px">Доступы конкретных клиентов (токены Директа, VK, Meta, refresh token Google, счётчики Метрики) вводятся в проекте → «Каналы и данные».</p>`;
+    $$('form[data-g]', main).forEach((form) => {
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const values = {};
+        $$('[name]', form).forEach((el) => { values[el.name] = el.type === 'checkbox' ? el.checked : el.value; });
+        try { await put('/settings', { values }); toast('Сохранено'); S.meta = await get('/meta'); pageSettings(main); } catch (err) { fail(err); }
+      };
+    });
+    $$('[data-clear]', main).forEach((a) => {
+      a.onclick = async (e) => {
+        e.preventDefault();
+        if (!confirm('Удалить сохранённый ключ?')) return;
+        try { await put('/settings', { values: { [a.dataset.clear]: null } }); S.meta = await get('/meta'); pageSettings(main); } catch (err) { fail(err); }
+      };
+    });
+    $$('[data-test]', main).forEach((b) => {
+      b.onclick = async () => {
+        b.disabled = true; const t = b.textContent; b.textContent = 'Проверяю…';
+        try { const r = await post(`/settings/test/${b.dataset.test}`); toast(r.message, !r.ok); } catch (err) { fail(err); }
+        b.disabled = false; b.textContent = t;
+      };
+    });
   }
 
   // ---------- boot ----------

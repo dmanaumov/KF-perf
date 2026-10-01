@@ -27,6 +27,7 @@ app.use((err, req, res, next) => {
 
 (async () => {
   await db.init();
+  await require('./settings').load();
   if (config.seedDemo) await require('./seed').seedIfEmpty();
   if (!config.appSecret) console.warn('[warn] APP_SECRET не задан — подключения с токенами работать не будут');
   app.listen(config.port, () => console.log(`[perf] слушаю :${config.port}`));

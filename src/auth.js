@@ -14,10 +14,12 @@ function parseCookies(req) {
   return out;
 }
 
+// Админ портала: email/логин из ADMIN_EMAILS / CEO_EMAILS / ADMIN_LOGINS
+// или системный администратор Mattermost (MM_SYSTEM_ADMINS_ARE_ADMINS, по умолчанию да).
 function isAdminIdentity(u) {
-  const email = String(u.email || '').toLowerCase();
-  const login = String(u.username || '').toLowerCase();
-  return (email && config.adminEmails.includes(email)) || (login && config.adminLogins.includes(login));
+  const email = String(u.email || '').toLowerCase().trim();
+  const login = String(u.username || '').toLowerCase().trim();
+  return !!((email && config.adminEmails.includes(email)) || (login && config.adminLogins.includes(login)) || (u.mmSystemAdmin && config.mmSystemAdminsAreAdmins));
 }
 
 async function mattermostLogin(loginId, password) {
@@ -36,13 +38,14 @@ async function mattermostLogin(loginId, password) {
     username: user.username,
     email: user.email,
     name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.nickname || user.username,
+    mmSystemAdmin: String(user.roles || '').split(/\s+/).includes('system_admin'),
   };
 }
 
 async function upsertUser(u) {
-  const count = (await db.one('SELECT count(*)::int AS n FROM users')).n;
-  // Первый вошедший пользователь становится админом, если список админов пуст.
-  const bootstrapAdmin = count === 0 && !config.adminEmails.length && !config.adminLogins.length;
+  // Пока в портале нет ни одного админа — первый вошедший становится админом.
+  const admins = (await db.one("SELECT count(*)::int AS n FROM users WHERE role='admin' AND id <> 'local:admin'")).n;
+  const bootstrapAdmin = admins === 0;
   const row = await db.one(
     `INSERT INTO users (id, username, email, name, role, last_login_at)
      VALUES ($1,$2,$3,$4,$5, now())
@@ -50,10 +53,12 @@ async function upsertUser(u) {
      RETURNING *`,
     [u.id, u.username, u.email || null, u.name || u.username, isAdminIdentity(u) || bootstrapAdmin || u.forceAdmin ? 'admin' : 'specialist']
   );
-  if ((isAdminIdentity(u) || u.forceAdmin) && row.role !== 'admin') {
+  if ((isAdminIdentity(u) || u.forceAdmin || bootstrapAdmin) && row.role !== 'admin') {
     await db.q("UPDATE users SET role='admin' WHERE id=$1", [row.id]);
     row.role = 'admin';
   }
+  console.log(`[auth] вход: ${u.username} <${u.email || 'без email'}>${u.mmSystemAdmin ? ' (MM system_admin)' : ''} → ${row.role}` +
+    (row.role !== 'admin' ? ` · ADMIN_EMAILS: ${config.adminEmails.join(', ') || 'пусто'}; ADMIN_LOGINS: ${config.adminLogins.join(', ') || 'пусто'}` : ''));
   return row;
 }
 

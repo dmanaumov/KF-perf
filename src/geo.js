@@ -1,7 +1,7 @@
 // GEO — видимость бренда в ответах AI-ассистентов.
 // Каждый промпт прогоняем через подключённые движки, ищем в ответе бренд,
 // конкурентов и домен клиента среди ссылок/источников.
-const config = require('./config');
+const settings = require('./settings');
 const db = require('./db');
 const { json } = require('./http');
 const { host } = require('./seo');
@@ -19,7 +19,7 @@ const SYSTEM = 'Ты — помощник, который отвечает по�
 
 function enabledEngines() {
   return ENGINES.filter((e) => {
-    const c = config.ai[e.id];
+    const c = settings.ai(e.id);
     return c && c.key && (e.id !== 'yandexgpt' || c.folderId);
   });
 }
@@ -27,7 +27,7 @@ function enabledEngines() {
 const URL_RE = /https?:\/\/[^\s)\]>"'»]+/g;
 
 async function ask(engine, prompt) {
-  const c = config.ai[engine];
+  const c = settings.ai(engine);
   if (engine === 'openai') {
     const body = { model: c.model, instructions: SYSTEM, input: prompt };
     if (c.webSearch) body.tools = [{ type: 'web_search' }];
@@ -121,7 +121,7 @@ async function runPrompt(project, prompt, engine) {
 
 async function checkProject(projectId, { promptId } = {}) {
   const engines = enabledEngines();
-  if (!engines.length) throw new Error('Не подключён ни один AI-движок: задайте ключи OPENAI_API_KEY / PERPLEXITY_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY / DEEPSEEK_API_KEY / YANDEXGPT_API_KEY');
+  if (!engines.length) throw new Error('Не подключён ни один AI-движок — раздел «Сервисы и ключи»');
   const project = await db.one('SELECT * FROM projects WHERE id=$1', [projectId]);
   const prompts = await db.all(`SELECT * FROM geo_prompts WHERE project_id=$1 AND active ${promptId ? 'AND id=$2' : ''} ORDER BY id`, promptId ? [projectId, promptId] : [projectId]);
   const run = await db.one("INSERT INTO sync_runs (kind, project_id) VALUES ('geo',$1) RETURNING id", [projectId]);
@@ -142,7 +142,7 @@ async function checkDue() {
     `SELECT p.id FROM projects p WHERE p.status='active' AND 'geo' = ANY(p.services)
        AND EXISTS (SELECT 1 FROM geo_prompts g WHERE g.project_id=p.id AND g.active)
        AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.project_id=p.id AND r.kind='geo' AND r.started_at > now() - ($1 || ' days')::interval)`,
-    [String(config.geoIntervalDays)]
+    [String(settings.schedule().geoIntervalDays)]
   );
   const out = [];
   for (const { id } of due) {
@@ -151,4 +151,4 @@ async function checkDue() {
   return out;
 }
 
-module.exports = { ENGINES, enabledEngines, checkProject, checkDue, analyze };
+module.exports = { ENGINES, enabledEngines, checkProject, checkDue, analyze, ask };

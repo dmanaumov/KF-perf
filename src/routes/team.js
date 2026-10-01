@@ -8,6 +8,7 @@ const sync = require('../sync');
 const seo = require('../seo');
 const geo = require('../geo');
 const connectors = require('../connectors');
+const settings = require('../settings');
 const { PLATFORMS, BY_ID, AREAS, TASK_STATUSES } = require('../platforms');
 const { today, monthStart, monthEnd, isDate, addDays } = require('../dates');
 
@@ -52,6 +53,40 @@ r.put('/users/:id', auth.requireRole('admin'), wrap(async (req, res) => {
   if (req.params.id === req.user.id && role !== 'admin') return bad(res, 'Нельзя снять админа с самого себя');
   await db.q('UPDATE users SET role=$2 WHERE id=$1', [req.params.id, role]);
   res.json({ ok: true });
+}));
+
+// ---------- сервисы и ключи (лидер Performance / админ) ----------
+const leadOnly = auth.requireRole('admin', 'lead');
+r.get('/settings', leadOnly, (req, res) => res.json(settings.describe()));
+r.put('/settings', leadOnly, wrap(async (req, res) => {
+  await settings.save(req.body && req.body.values, req.user.id);
+  res.json(settings.describe());
+}));
+r.post('/settings/test/:service', leadOnly, wrap(async (req, res) => {
+  const svc = req.params.service;
+  try {
+    if (svc === 'seo') {
+      if (!seo.isConfigured()) throw new Error('Заполните API-ключ и ID каталога');
+      const urls = await seo.serp('контент ферма', 213, 10);
+      return res.json({ ok: true, message: `Yandex Search API отвечает: ${urls.length} результатов` });
+    }
+    if (svc === 'google') {
+      const g = settings.googleAds();
+      const miss = [['Developer token', g.developerToken], ['Client ID', g.clientId], ['Client secret', g.clientSecret]].filter(([, v]) => !v).map(([k]) => k);
+      if (miss.length) throw new Error(`Не заполнено: ${miss.join(', ')}`);
+      return res.json({ ok: true, message: 'Заполнено. Реальная проверка — кнопкой «Проверить» у канала Google Ads в проекте (нужен refresh token клиента).' });
+    }
+    const eng = geo.ENGINES.find((e) => e.id === svc);
+    if (eng) {
+      if (!geo.enabledEngines().some((e) => e.id === svc)) throw new Error('Ключ не задан');
+      const t0 = Date.now();
+      const a = await geo.ask(svc, 'Ответь одним словом: столица России?');
+      return res.json({ ok: true, message: `${eng.label} отвечает за ${((Date.now() - t0) / 1000).toFixed(1)} с: «${String(a.text).trim().slice(0, 60)}»` });
+    }
+    return bad(res, 'Неизвестный сервис');
+  } catch (err) {
+    res.json({ ok: false, message: err.message });
+  }
 }));
 
 // ---------- project access ----------

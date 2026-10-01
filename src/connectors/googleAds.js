@@ -1,6 +1,6 @@
 // Google Ads API (REST, googleAds:searchStream). Developer token и OAuth-клиент —
 // глобально в env, refresh token и customer id — на подключение.
-const config = require('../config');
+const settings = require('../settings');
 const { json } = require('../http');
 
 const fields = [
@@ -11,8 +11,8 @@ const fields = [
 const settingsFields = [];
 
 async function accessToken(cred) {
-  const g = config.googleAds;
-  if (!g.developerToken || !g.clientId || !g.clientSecret) throw new Error('Google Ads: задайте GOOGLE_ADS_DEVELOPER_TOKEN / CLIENT_ID / CLIENT_SECRET в env');
+  const g = settings.googleAds();
+  if (!g.developerToken || !g.clientId || !g.clientSecret) throw new Error('Google Ads: лидер Performance должен заполнить Developer token и OAuth-клиент в разделе «Сервисы и ключи»');
   const body = new URLSearchParams({ client_id: g.clientId, client_secret: g.clientSecret, refresh_token: cred.refresh_token, grant_type: 'refresh_token' });
   const r = await json('https://oauth2.googleapis.com/token', { method: 'POST', body, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
   return r.access_token;
@@ -22,9 +22,10 @@ const digits = (s) => String(s || '').replace(/\D/g, '');
 
 async function gaql(cred, query) {
   const token = await accessToken(cred);
-  const headers = { Authorization: `Bearer ${token}`, 'developer-token': config.googleAds.developerToken, 'Content-Type': 'application/json' };
+  const g = settings.googleAds();
+  const headers = { Authorization: `Bearer ${token}`, 'developer-token': g.developerToken, 'Content-Type': 'application/json' };
   if (cred.login_customer_id) headers['login-customer-id'] = digits(cred.login_customer_id);
-  const url = `https://googleads.googleapis.com/${config.googleAds.apiVersion}/customers/${digits(cred.customer_id)}/googleAds:searchStream`;
+  const url = `https://googleads.googleapis.com/${g.apiVersion}/customers/${digits(cred.customer_id)}/googleAds:searchStream`;
   const chunks = await json(url, { method: 'POST', headers, body: JSON.stringify({ query }) });
   return (chunks || []).flatMap((c) => c.results || []);
 }

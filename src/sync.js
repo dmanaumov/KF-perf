@@ -1,4 +1,4 @@
-const config = require('./config');
+const settings = require('./settings');
 const db = require('./db');
 const secrets = require('./secrets');
 const connectors = require('./connectors');
@@ -42,7 +42,8 @@ async function syncIntegration(id, { dateFrom, dateTo } = {}) {
   const run = await db.one("INSERT INTO sync_runs (kind, integration_id, project_id) VALUES ('ads',$1,$2) RETURNING id", [id, integ.project_id]);
   try {
     const to = dateTo || addDays(today(), 0);
-    const from = dateFrom || addDays(to, -(integ.last_sync_at ? config.syncLookbackDays : config.syncInitialDays));
+    const sch = settings.schedule();
+    const from = dateFrom || addDays(to, -(integ.last_sync_at ? sch.syncLookbackDays : sch.syncInitialDays));
     const rows = await conn.fetchStats(secrets.decrypt(integ.credentials_enc), integ.settings || {}, from, to);
     const n = await upsertRows(integ, rows);
     await db.q("UPDATE integrations SET status='ok', last_sync_at=now(), last_error=NULL WHERE id=$1", [id]);
@@ -63,7 +64,7 @@ async function syncDue() {
      WHERE i.enabled AND p.status <> 'archived' AND i.credentials_enc IS NOT NULL
        AND i.platform = ANY($1)
        AND (i.last_sync_at IS NULL OR i.last_sync_at < now() - ($2 || ' hours')::interval)`,
-    [['yandex_direct', 'metrika', 'google_ads', 'vk_ads', 'meta'], String(config.syncIntervalHours)]
+    [['yandex_direct', 'metrika', 'google_ads', 'vk_ads', 'meta'], String(settings.schedule().syncIntervalHours)]
   );
   const results = [];
   for (const { id } of due) {

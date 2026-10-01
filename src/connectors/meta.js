@@ -1,5 +1,5 @@
 // Meta Marketing API (Instagram / Facebook Ads) — Insights по кампаниям по дням.
-const config = require('../config');
+const settings = require('../settings');
 const { json } = require('../http');
 
 const fields = [
@@ -16,7 +16,7 @@ const act = (id) => (String(id).startsWith('act_') ? id : `act_${String(id).repl
 async function fetchStats(cred, settings, dateFrom, dateTo) {
   const leadTypes = String(settings.lead_actions || '').split(',').map((s) => s.trim()).filter(Boolean);
   const types = leadTypes.length ? leadTypes : DEFAULT_LEADS;
-  const url = new URL(`https://graph.facebook.com/${config.metaApiVersion}/${act(cred.ad_account_id)}/insights`);
+  const url = new URL(`https://graph.facebook.com/${settings.metaApiVersion()}/${act(cred.ad_account_id)}/insights`);
   url.searchParams.set('level', 'campaign');
   url.searchParams.set('time_increment', '1');
   url.searchParams.set('limit', '500');
@@ -46,7 +46,7 @@ async function fetchStats(cred, settings, dateFrom, dateTo) {
 }
 
 async function test(cred) {
-  const r = await json(`https://graph.facebook.com/${config.metaApiVersion}/${act(cred.ad_account_id)}?fields=name,currency&access_token=${encodeURIComponent(cred.token)}`);
+  const r = await json(`https://graph.facebook.com/${settings.metaApiVersion()}/${act(cred.ad_account_id)}?fields=name,currency&access_token=${encodeURIComponent(cred.token)}`);
   return `Аккаунт: ${r.name} (${r.currency})`;
 }
 

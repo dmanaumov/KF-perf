@@ -1,6 +1,6 @@
 // SEO: съём позиций в Яндексе через Yandex Search API (Yandex Cloud).
 // Google-позиции — через CSV-импорт (нет официального SERP API).
-const config = require('./config');
+const settings = require('./settings');
 const db = require('./db');
 const { json } = require('./http');
 const { today } = require('./dates');
@@ -8,7 +8,8 @@ const { today } = require('./dates');
 const SEARCH_URL = 'https://searchapi.api.cloud.yandex.net/v2/web/search';
 
 function isConfigured() {
-  return !!(config.yandexSearchApiKey && config.yandexSearchFolderId);
+  const y = settings.yandexSearch();
+  return !!(y.key && y.folderId);
 }
 
 function host(u) {
@@ -20,6 +21,7 @@ function decode(s) {
 }
 
 async function serp(keyword, region, depth) {
+  const y = settings.yandexSearch();
   const urls = [];
   const perPage = Math.min(depth, 100);
   for (let page = 0; urls.length < depth && page < Math.ceil(depth / perPage); page++) {
@@ -27,12 +29,12 @@ async function serp(keyword, region, depth) {
       query: { searchType: 'SEARCH_TYPE_RU', queryText: keyword, page },
       groupSpec: { groupMode: 'GROUP_MODE_FLAT', groupsOnPage: perPage, docsInGroup: 1 },
       region: String(region || 213),
-      folderId: config.yandexSearchFolderId,
+      folderId: y.folderId,
       responseFormat: 'FORMAT_XML',
     };
     const r = await json(SEARCH_URL, {
       method: 'POST',
-      headers: { Authorization: `Api-Key ${config.yandexSearchApiKey}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Api-Key ${y.key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const xml = Buffer.from(r.rawData || '', 'base64').toString('utf8');
@@ -44,7 +46,7 @@ async function serp(keyword, region, depth) {
 }
 
 async function checkKeyword(kw, siteHost) {
-  const urls = await serp(kw.keyword, kw.region, config.seoDepth);
+  const urls = await serp(kw.keyword, kw.region, settings.yandexSearch().depth);
   const idx = urls.findIndex((u) => {
     const h = host(u);
     return h === siteHost || h.endsWith('.' + siteHost);
@@ -59,7 +61,7 @@ async function checkKeyword(kw, siteHost) {
 }
 
 async function checkProject(projectId) {
-  if (!isConfigured()) throw new Error('Yandex Search API не настроен (YANDEX_SEARCH_API_KEY / YANDEX_SEARCH_FOLDER_ID)');
+  if (!isConfigured()) throw new Error('Yandex Search API не настроен — раздел «Сервисы и ключи»');
   const p = await db.one('SELECT * FROM projects WHERE id=$1', [projectId]);
   const siteHost = host(p.site_url || '');
   if (!siteHost) throw new Error('У проекта не указан сайт');
@@ -81,7 +83,7 @@ async function checkDue() {
     `SELECT p.id FROM projects p WHERE p.status='active' AND 'seo' = ANY(p.services)
        AND EXISTS (SELECT 1 FROM seo_keywords k WHERE k.project_id=p.id AND k.active AND k.engine='yandex')
        AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.project_id=p.id AND r.kind='seo' AND r.started_at > now() - ($1 || ' hours')::interval)`,
-    [String(config.seoIntervalHours)]
+    [String(settings.schedule().seoIntervalHours)]
   );
   const out = [];
   for (const { id } of due) {
@@ -109,4 +111,4 @@ async function importPositions(projectId, rows) {
   return n;
 }
 
-module.exports = { isConfigured, checkProject, checkDue, importPositions, host };
+module.exports = { isConfigured, checkProject, checkDue, importPositions, host, serp };
