@@ -12,6 +12,7 @@ app.use(express.json({ limit: '5mb' }));
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 app.use('/api/cron', require('./routes/cron'));
+app.use('/api/ingest', require('./routes/ingest'));
 app.use('/api/client', require('./routes/client'));
 app.use('/api', require('./routes/team'));
 
