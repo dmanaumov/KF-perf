@@ -265,7 +265,8 @@ function publicIntegration(i) {
   let credKeys = [];
   try { credKeys = Object.entries(secrets.decrypt(i.credentials_enc)).filter(([, v]) => v).map(([k]) => k); } catch (e) { credKeys = ['?']; }
   const { credentials_enc, ...rest } = i;
-  return { ...rest, credKeys, hasApi: !!connectors.get(i.platform), label: (BY_ID[i.platform] || {}).label || i.platform };
+  const conn = connectors.get(i.platform);
+  return { ...rest, credKeys, hasApi: !!conn, noCreds: !!(conn && conn.noCreds), label: (BY_ID[i.platform] || {}).label || i.platform };
 }
 
 r.get(`${P}/integrations`, loadProject, wrap(async (req, res) => {
@@ -361,6 +362,60 @@ r.post(`${I}/manual`, loadProject, wrap(loadIntegration), wrap(async (req, res) 
     impressions: +b.impressions || 0, clicks: +b.clicks || 0, spend: +b.spend || 0, leads: +b.leads || 0, revenue: +b.revenue || 0,
   }], 'manual');
   res.json({ ok: true, rows: n });
+}));
+
+// ---------- Google-таблицы проекта: лиды и расходы ----------
+// Отдельный блок в «Каналах и данных»: две ссылки. Под капотом — подключения
+// platform='gsheet' с settings.role = leads | spend.
+const SHEET_ROLES = ['leads', 'spend'];
+async function projectSheets(pid) {
+  const list = await db.all(
+    `SELECT i.*, (SELECT count(*)::int FROM stats_daily s WHERE s.integration_id=i.id) AS rows_count,
+            (SELECT min(date) FROM stats_daily s WHERE s.integration_id=i.id) AS first_date,
+            (SELECT max(date) FROM stats_daily s WHERE s.integration_id=i.id) AS last_date
+     FROM integrations i WHERE i.project_id=$1 AND i.platform='gsheet' ORDER BY i.id`, [pid]);
+  const out = {};
+  for (const role of SHEET_ROLES) {
+    const i = list.find((x) => (x.settings || {}).role === role);
+    out[role] = i ? { id: i.id, url: i.settings.url || '', default_platform: i.settings.default_platform || 'other', status: i.status, last_sync_at: i.last_sync_at, last_error: i.last_error, rows: i.rows_count, first_date: i.first_date, last_date: i.last_date } : null;
+  }
+  return out;
+}
+
+r.get(`${P}/sheets`, loadProject, wrap(async (req, res) => res.json(await projectSheets(req.project.id))));
+
+r.put(`${P}/sheets`, loadProject, wrap(async (req, res) => {
+  const gs = connectors.get('gsheet');
+  const b = req.body || {};
+  const results = {};
+  for (const role of SHEET_ROLES) {
+    if (!b[role]) continue;
+    const url = String(b[role].url || '').trim();
+    const def = BY_ID[b[role].default_platform] && BY_ID[b[role].default_platform].kind === 'ads' ? b[role].default_platform : 'other';
+    if (url) { try { gs.csvUrl(url); } catch (err) { return bad(res, `${role === 'leads' ? 'Таблица лидов' : 'Таблица расходов'}: ${err.message}`); } }
+    const cur = await db.one("SELECT * FROM integrations WHERE project_id=$1 AND platform='gsheet' AND settings->>'role'=$2", [req.project.id, role]);
+    if (!url) {
+      if (cur) await db.q('DELETE FROM integrations WHERE id=$1', [cur.id]);
+      results[role] = { removed: !!cur };
+      continue;
+    }
+    const settingsObj = { url, role, default_platform: def };
+    let id;
+    if (cur) {
+      await db.q("UPDATE integrations SET settings=$2, enabled=true, status=CASE WHEN settings->>'url' IS DISTINCT FROM $3 THEN 'never' ELSE status END WHERE id=$1", [cur.id, settingsObj, url]);
+      id = cur.id;
+    } else {
+      id = (await db.one("INSERT INTO integrations (project_id, platform, title, settings, status) VALUES ($1,'gsheet',$2,$3,'never') RETURNING id",
+        [req.project.id, role === 'leads' ? 'Google-таблица: лиды' : 'Google-таблица: расходы', settingsObj])).id;
+    }
+    try {
+      const r2 = await sync.syncIntegration(id);
+      results[role] = { ok: true, rows: r2.rows, meta: r2.meta };
+    } catch (err) {
+      results[role] = { ok: false, error: err.message };
+    }
+  }
+  res.json({ results, sheets: await projectSheets(req.project.id) });
 }));
 
 // ---------- tasks ----------

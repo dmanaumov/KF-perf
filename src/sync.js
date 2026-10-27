@@ -4,11 +4,15 @@ const secrets = require('./secrets');
 const connectors = require('./connectors');
 const { today, addDays } = require('./dates');
 
-async function upsertRows(integration, rows) {
-  if (!rows.length) return 0;
+// replace: true — источник отдаёт данные целиком (Google-таблица): сначала
+// удаляем всё, что раньше пришло из этого подключения, потом пишем заново.
+// r.platform у строки — переопределение площадки (таблица со смешанными каналами).
+async function upsertRows(integration, rows, { replace = false } = {}) {
+  if (!rows.length && !replace) return 0;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
+    if (replace) await client.query('DELETE FROM stats_daily WHERE integration_id=$1', [integration.id]);
     for (const r of rows) {
       await client.query(
         `INSERT INTO stats_daily (integration_id, project_id, platform, date, campaign_id, campaign_name, impressions, clicks, spend, leads, revenue)
@@ -16,7 +20,7 @@ async function upsertRows(integration, rows) {
          ON CONFLICT (integration_id, date, campaign_id) DO UPDATE SET
            campaign_name=EXCLUDED.campaign_name, impressions=EXCLUDED.impressions, clicks=EXCLUDED.clicks,
            spend=EXCLUDED.spend, leads=EXCLUDED.leads, revenue=EXCLUDED.revenue`,
-        [integration.id, integration.project_id, integration.platform, r.date, String(r.campaign_id || ''), r.campaign_name || null,
+        [integration.id, integration.project_id, r.platform || integration.platform, r.date, String(r.campaign_id || ''), r.campaign_name || null,
           Math.round(r.impressions || 0), Math.round(r.clicks || 0), r.spend || 0, r.leads || 0, r.revenue || 0]
       );
     }
@@ -45,10 +49,10 @@ async function syncIntegration(id, { dateFrom, dateTo } = {}) {
     const sch = settings.schedule();
     const from = dateFrom || addDays(to, -(integ.last_sync_at ? sch.syncLookbackDays : sch.syncInitialDays));
     const rows = await conn.fetchStats(secrets.decrypt(integ.credentials_enc), integ.settings || {}, from, to);
-    const n = await upsertRows(integ, rows);
+    const n = await upsertRows(integ, rows, { replace: !!conn.replace });
     await db.q("UPDATE integrations SET status='ok', last_sync_at=now(), last_error=NULL WHERE id=$1", [id]);
     await db.q("UPDATE sync_runs SET status='ok', finished_at=now(), rows=$2 WHERE id=$1", [run.id, n]);
-    return { rows: n, from, to };
+    return { rows: n, from, to, meta: rows.meta || null };
   } catch (err) {
     await db.q("UPDATE integrations SET status='error', last_error=$2 WHERE id=$1", [id, err.message.slice(0, 1000)]);
     await db.q("UPDATE sync_runs SET status='error', finished_at=now(), error=$2 WHERE id=$1", [run.id, err.message.slice(0, 1000)]);
@@ -61,10 +65,11 @@ async function syncIntegration(id, { dateFrom, dateTo } = {}) {
 async function syncDue() {
   const due = await db.all(
     `SELECT i.id FROM integrations i JOIN projects p ON p.id=i.project_id
-     WHERE i.enabled AND p.status <> 'archived' AND i.credentials_enc IS NOT NULL
+     WHERE i.enabled AND p.status <> 'archived'
+       AND (i.credentials_enc IS NOT NULL OR (i.platform = 'gsheet' AND COALESCE(i.settings->>'url','') <> ''))
        AND i.platform = ANY($1)
        AND (i.last_sync_at IS NULL OR i.last_sync_at < now() - ($2 || ' hours')::interval)`,
-    [['yandex_direct', 'metrika', 'google_ads', 'vk_ads', 'meta'], String(settings.schedule().syncIntervalHours)]
+    [['yandex_direct', 'metrika', 'google_ads', 'vk_ads', 'meta', 'gsheet'], String(settings.schedule().syncIntervalHours)]
   );
   const results = [];
   for (const { id } of due) {

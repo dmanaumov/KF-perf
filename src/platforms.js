@@ -13,6 +13,8 @@ const PLATFORMS = [
   { id: 'ozon', label: 'Ozon', short: 'Ozon', kind: 'ads', sync: 'manual', color: '#005bff' },
   { id: 'wb', label: 'Wildberries', short: 'WB', kind: 'ads', sync: 'manual', color: '#cb11ab' },
   { id: 'other', label: 'Другое', short: 'Другое', kind: 'ads', sync: 'manual', color: '#8a9a99' },
+  // Источник данных, а не площадка: строки из Google-таблицы раскладываются по реальным каналам
+  { id: 'gsheet', label: 'Google-таблица', short: 'Таблица', kind: 'source', sync: 'api', color: '#0f9d58' },
   { id: 'metrika', label: 'Яндекс Метрика', short: 'Метрика', kind: 'analytics', sync: 'api', color: '#ff3333' },
 ];
 

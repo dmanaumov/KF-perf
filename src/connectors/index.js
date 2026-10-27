@@ -1,4 +1,4 @@
-const connectors = [require('./yandexDirect'), require('./metrika'), require('./googleAds'), require('./vkAds'), require('./meta')];
+const connectors = [require('./yandexDirect'), require('./metrika'), require('./googleAds'), require('./vkAds'), require('./meta'), require('./gsheet')];
 const BY_PLATFORM = Object.fromEntries(connectors.map((c) => [c.platform, c]));
 
 // Описание полей для UI (без функций)

@@ -326,7 +326,7 @@
       <div class="crumbs"><a href="#/">Обзор</a> / ${esc(p.client_name || 'Проект')}</div>
       <div class="page-head">
         <div><h1>${esc(p.name)}</h1><div class="sub row" style="gap:6px">${svcChips(p.services)}${p.site_url ? `<a class="faint" href="${esc(p.site_url)}" target="_blank" rel="noopener">${esc(p.site_url.replace(/^https?:\/\//, ''))}</a>` : ''}${p.manager ? `<span class="faint">· ${esc(p.manager.name)}</span>` : ''}</div></div>
-        <div class="row"><button class="btn" id="clink">Кабинет клиента</button><button class="btn" id="pset">Настройки</button></div>
+        <div class="row"><button class="btn primary" id="ptask">＋ Задача</button><button class="btn" id="clink">Кабинет клиента</button><button class="btn" id="pset">Настройки</button></div>
       </div>
       <div class="tabs" id="ptabs">${tabs.map(([k, l]) => `<button data-t="${k}" class="${k === tab ? 'active' : ''}">${l}</button>`).join('')}</div>
       <div id="pbody"><div class="empty">Загрузка…</div></div>`;
@@ -334,6 +334,12 @@
     if (p.has_secrets) $('#ptabs [data-t="secrets"]').classList.add('filled');
     $('#pset').onclick = () => projectModal(p);
     $('#clink').onclick = () => clientLinkModal(p);
+    // Задача прямо из шапки проекта (на любой вкладке). После создания вкладка «Задачи»
+    // перерисовывается, на остальных — просто тост, чтобы не сбрасывать то, что смотрят.
+    $('#ptask').onclick = () => taskModal({ project_id: p.id }, () => {
+      if (tab === 'tasks') tabTasks($('#pbody'), p);
+      if (S.me) get('/tasks?open=1&assignee=me').then((t) => { const el = $('#mytasks'); if (el) { el.textContent = t.length; el.classList.toggle('hidden', !t.length); } }).catch(() => {});
+    });
     const body = $('#pbody');
     const T = { summary: tabSummary, campaigns: tabCampaigns, tasks: tabTasks, seo: tabSeo, geo: tabGeo, log: tabLog, channels: tabChannels, plan: tabPlan, secrets: tabSecrets };
     await (T[tab] || tabSummary)(body, p);
@@ -411,7 +417,7 @@
     Charts.bars($('#c1'), s.daily.map((d) => ({ x: d.date, y: d.spend })), { height: 170, ref: plan.budget ? plan.budget / daysInMonth : null, refLabel: plan.budget ? 'план/день' : '' });
     Charts.bars($('#c2'), s.daily.map((d) => ({ x: d.date, y: d.leads })), { height: 170, color: 'var(--chart-2)', axisFmt: F.int, fmt: F.int });
     Charts.line($('#c3'), s.daily.map((d) => ({ x: d.date, y: d.leads ? d.spend / d.leads : null })), { height: 170, axisFmt: F.moneyShort, fmt: F.money, ref: plan.cpl_target, refLabel: plan.cpl_target ? 'цель' : '', color: 'var(--chart-3)' });
-    Charts.hbars($('#hb'), s.byPlatform.map((r) => ({ label: plat(r.platform).short, dot: plat(r.platform).color, value: r.spend, valueText: F.money(r.spend), sub: `${F.int(r.leads)} ${sales ? 'конв.' : 'лид.'} · ${F.money(r.cpl)}` })), { empty: 'Нет данных за период — подключите каналы на вкладке «Каналы и данные»' });
+    Charts.hbars($('#hb'), s.byPlatform.map((r) => ({ label: plat(r.platform).short, dot: plat(r.platform).color, value: r.spend, valueText: F.money(r.spend), sub: `${F.int(r.leads)} ${sales ? 'конв.' : 'лид.'} · ${F.money(r.cpl)}` })), { empty: 'Нет данных за период — подключите рекламные кабинеты или Google-таблицы с лидами и расходами на вкладке «Каналы и данные»' });
     if (s.traffic.length) Charts.hbars($('#tr'), s.traffic.map((r) => ({ label: r.name, value: r.visits, valueText: F.int(r.visits), sub: r.leads ? `${F.int(r.leads)} целей` : '' })));
   }
 
@@ -457,7 +463,7 @@
 
   // ---------- tasks ----------
   function taskForm(t = {}, { projectSelect } = {}) {
-    const platforms = S.meta.platforms;
+    const platforms = S.meta.platforms.filter((x) => x.kind === 'ads');
     return `<form class="form" id="tf">
       ${projectSelect ? `<label class="f">Проект<select class="inp" name="project_id" required>${opt('', '— выберите —', t.project_id)}${S.projects.filter((p) => p.status !== 'archived').map((p) => opt(p.id, p.name, t.project_id)).join('')}</select></label>` : ''}
       <label class="f">Задача<input class="inp" name="title" value="${esc(t.title)}" required></label>
@@ -733,7 +739,7 @@
         <label class="f">Что сделали<textarea class="inp" name="text" required placeholder="Подняли ставки в поиске на 15%…"></textarea></label>
         <div class="two"><label class="f">Дата<input class="inp" type="date" name="date" value="${today()}"></label>
         <label class="f">Направление<select class="inp" name="area">${S.meta.areas.map((a) => opt(a.id, a.label, 'ads')).join('')}</select></label></div>
-        <label class="f">Канал<select class="inp" name="platform">${opt('', '—', '')}${S.meta.platforms.map((x) => opt(x.id, x.label, '')).join('')}</select></label>
+        <label class="f">Канал<select class="inp" name="platform">${opt('', '—', '')}${S.meta.platforms.filter((x) => x.kind === 'ads').map((x) => opt(x.id, x.label, '')).join('')}</select></label>
         <label class="checkline"><input type="checkbox" name="client_visible" checked>Видно клиенту</label>
         <button class="btn primary">Добавить</button></form></div></div>`;
     $('#lf').onsubmit = async (e) => { e.preventDefault(); try { await post(`/projects/${p.id}/changelog`, formData(e.target)); tabLog(body, p); } catch (err) { fail(err); } };
@@ -783,6 +789,61 @@
     window.onbeforeunload = () => (ta.isConnected && ta.value !== saved ? true : undefined);
   }
 
+  // ---------- Google-таблицы: лиды и расходы ----------
+  async function sheetsBlock(box, p, onSaved) {
+    const d = await get(`/projects/${p.id}/sheets`);
+    const adPl = S.meta.platforms.filter((x) => x.kind === 'ads');
+    const st = (x) => {
+      if (!x) return '<span class="faint">не подключена</span>';
+      if (x.status === 'error') return `<span class="chip bad">ошибка</span> <span class="err" style="color:var(--bad);font-size:12.5px">${esc(x.last_error || '')}</span>`;
+      if (x.status === 'never') return '<span class="chip warn">ещё не загружена</span>';
+      return `<span class="chip good">загружено</span> <span class="faint" style="font-size:12.5px">${F.int(x.rows)} строк${x.first_date ? ` · ${F.date(x.first_date)} — ${F.date(x.last_date)}` : ''} · обновлено ${F.ago(x.last_sync_at)}</span>`;
+    };
+    const row = (role, title, hint) => {
+      const x = d[role];
+      return `<div class="sheet-row">
+        <div class="sheet-title"><b>${title}</b><div class="faint" style="font-size:12px">${hint}</div></div>
+        <input class="inp" name="${role}_url" placeholder="https://docs.google.com/spreadsheets/d/…" value="${esc(x ? x.url : '')}">
+        <label class="f" style="min-width:170px">Канал, если не указан<select class="inp" name="${role}_platform">${adPl.map((o) => opt(o.id, o.label, x ? x.default_platform : 'other')).join('')}</select></label>
+        <div class="sheet-status">${st(x)}</div>
+      </div>`;
+    };
+    box.innerHTML = `<form class="card" id="sheets-form">
+      <div class="card-head"><h3>📊 Google-таблицы с данными</h3><div class="row">${d.leads || d.spend ? '<button type="button" class="btn sm" id="sheets-sync">Обновить из таблиц</button>' : ''}<button class="btn primary sm">Сохранить и загрузить</button></div></div>
+      <p class="muted" style="margin:0 0 12px;font-size:13px">Если лиды и расходы ведутся в Google-таблицах — вставьте ссылки, и графики, CPL и план/факт будут считаться по ним. Таблицы перечитываются автоматически вместе с остальными каналами.</p>
+      ${row('leads', 'Таблица лидов', 'одна строка = один лид, или колонка «Лиды» с количеством')}
+      ${row('spend', 'Таблица расходов', 'колонки «Дата» и «Расход» по дням')}
+      ${KF_GUIDES.html('gsheet', { compact: true })}
+    </form>`;
+    $('#sheets-form', box).onsubmit = async (e) => {
+      e.preventDefault();
+      const v = formData(e.target);
+      const btn = $('button.primary', e.target);
+      btn.disabled = true; btn.textContent = 'Загружаю…';
+      try {
+        const body = {};
+        ['leads', 'spend'].forEach((role) => { body[role] = { url: v[`${role}_url`], default_platform: v[`${role}_platform`] }; });
+        const r = await put(`/projects/${p.id}/sheets`, body);
+        const msgs = Object.entries(r.results).map(([role, x]) => {
+          const name = role === 'leads' ? 'Лиды' : 'Расходы';
+          if (x.removed !== undefined) return x.removed ? `${name}: таблица отключена` : '';
+          if (!x.ok) return `${name}: ${x.error}`;
+          const m = x.meta || {};
+          return `${name}: ${x.rows} строк${m.junk ? `, спам/дубли ${m.junk}` : ''}${m.badDate ? `, без даты ${m.badDate}` : ''}`;
+        }).filter(Boolean);
+        toast(msgs.join(' · ') || 'Сохранено', Object.values(r.results).some((x) => x.ok === false));
+        onSaved();
+      } catch (err) { fail(err); btn.disabled = false; btn.textContent = 'Сохранить и загрузить'; }
+    };
+    if ($('#sheets-sync', box)) $('#sheets-sync', box).onclick = async (e) => {
+      e.target.disabled = true; e.target.textContent = 'Обновляю…';
+      const ids = ['leads', 'spend'].map((r) => d[r] && d[r].id).filter(Boolean);
+      for (const id of ids) await post(`/projects/${p.id}/integrations/${id}/sync`).catch(fail);
+      toast('Таблицы перечитаны');
+      onSaved();
+    };
+  }
+
   // ---------- channels / integrations ----------
   async function tabChannels(body, p) {
     const [list, runs] = await Promise.all([get(`/projects/${p.id}/integrations`), get(`/projects/${p.id}/syncs`)]);
@@ -790,7 +851,7 @@
       ok: '<span class="chip good">синхронизировано</span>', error: '<span class="chip bad">ошибка</span>', never: '<span class="chip warn">ещё не синхронизировано</span>',
       manual: '<span class="chip">ручной ввод / CSV</span>',
     }[i.status] || '');
-    body.innerHTML = `<div class="grid g-21">
+    body.innerHTML = `<div id="sheets-box"></div><div class="grid g-21 mt">
       <div class="card"><div class="card-head"><h3>Подключённые каналы</h3><button class="btn primary sm" id="ai">＋ Подключить канал</button></div>
         ${list.length ? list.map((i) => {
           const pl = plat(i.platform);
@@ -799,8 +860,8 @@
               <div class="meta">${esc(pl.label)} · обновлено ${F.ago(i.last_sync_at)}${i.first_date ? ` · данные ${F.date(i.first_date)} — ${F.date(i.last_date)}` : ' · данных нет'}</div>
               ${i.status === 'error' && i.last_error ? `<div class="err">${esc(i.last_error)}</div>` : ''}</div>
             <div class="row" style="gap:4px;justify-content:flex-end">
-              ${i.hasApi && i.credKeys.length ? `<button class="btn sm" data-sync="${i.id}">Обновить</button><button class="btn ghost sm" data-test="${i.id}">Проверить</button>` : ''}
-              ${i.platform !== 'metrika' ? `<button class="btn ghost sm" data-csv="${i.id}">CSV</button><button class="btn ghost sm" data-man="${i.id}">＋ день</button>` : ''}
+              ${i.hasApi && (i.credKeys.length || i.noCreds) ? `<button class="btn sm" data-sync="${i.id}">Обновить</button><button class="btn ghost sm" data-test="${i.id}">Проверить</button>` : ''}
+              ${i.platform !== 'metrika' && i.platform !== 'gsheet' ? `<button class="btn ghost sm" data-csv="${i.id}">CSV</button><button class="btn ghost sm" data-man="${i.id}">＋ день</button>` : ''}
               <button class="btn ghost sm" data-edit="${i.id}">⚙</button></div></div>`;
         }).join('') : '<div class="empty"><span class="em">🔌</span>Подключите рекламные кабинеты и Метрику</div>'}
       </div>
@@ -810,6 +871,7 @@
           <td class="r">${r.status === 'ok' ? `<span class="chip good">${r.rows ?? ''}</span>` : r.status === 'running' ? '<span class="chip warn">идёт</span>' : '<span class="chip bad">ошибка</span>'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Пока пусто</div>'}
       </div></div>`;
     const reload = () => tabChannels(body, p);
+    sheetsBlock($('#sheets-box'), p, reload);
     $('#ai').onclick = () => integrationModal(p, null, reload);
     $$('[data-edit]', body).forEach((b) => { b.onclick = () => integrationModal(p, list.find((i) => i.id === +b.dataset.edit), reload); });
     $$('[data-sync]', body).forEach((b) => {
@@ -859,7 +921,7 @@
         ${c.settingsFields.map((f) => `<label class="f">${esc(f.label)}<input class="inp" name="set_${f.key}" value="${esc((i && i.settings && i.settings[f.key]) || '')}" placeholder="${esc(f.placeholder || '')}"></label>`).join('')}`;
     };
     modal(isNew ? 'Подключить канал' : `Канал: ${plat(platform).label}`, `<form class="form" id="inf">
-      ${isNew ? `<label class="f">Площадка<select class="inp" name="platform" id="ipl">${S.meta.platforms.map((x) => opt(x.id, `${x.label}${x.sync === 'api' ? '' : ' — CSV / вручную'}`, platform)).join('')}</select></label>` : ''}
+      ${isNew ? `<label class="f">Площадка<select class="inp" name="platform" id="ipl">${S.meta.platforms.filter((x) => x.kind !== 'source').map((x) => opt(x.id, `${x.label}${x.sync === 'api' ? '' : ' — CSV / вручную'}`, platform)).join('')}</select></label>` : ''}
       <label class="f">Название <span class="help">напр. «Директ — агентский кабинет»</span><input class="inp" name="title" value="${esc(i ? i.title : '')}"></label>
       <div id="ifields" class="form">${fieldsHtml()}</div>
       ${!isNew ? `<label class="checkline"><input type="checkbox" name="enabled" ${i.enabled ? 'checked' : ''}>Включён (участвует в автообновлении)</label>` : ''}

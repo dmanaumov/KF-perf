@@ -381,3 +381,10 @@ textarea.secrets-text { min-height: 340px; font-family: ui-monospace, SFMono-Reg
 .sec-diff pre.old { color: var(--bad); }
 .sec-diff pre.new { color: var(--good); }
 @media (max-width: 520px) { .sec-diff { grid-template-columns: 1fr; } }
+
+/* ---------- Google-таблицы ---------- */
+.sheet-row { display: grid; grid-template-columns: 200px minmax(0, 1fr) 200px; gap: 12px; align-items: end; padding: 12px 0; border-top: 1px solid var(--line); }
+.sheet-row .sheet-status { grid-column: 2 / 4; margin-top: -4px; }
+.sheet-title { align-self: center; }
+#sheets-form details.guide { margin-top: 12px; }
+@media (max-width: 860px) { .sheet-row { grid-template-columns: 1fr; } .sheet-row .sheet-status { grid-column: auto; } }
