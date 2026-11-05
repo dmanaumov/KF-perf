@@ -417,3 +417,7 @@ textarea.inp.sheet-urls { min-height: 42px; resize: vertical; font-size: 13px; }
 .cmp-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: 0; }
 .t td.cmp-best { color: var(--good); font-weight: 800; }
 .modal.xwide { width: min(1080px, 100%); }
+
+/* «Поделиться с командой» — иконка-ссылка у отчётов и фильтров */
+.share-ic { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2); display: inline-grid; place-items: center; cursor: pointer; padding: 0; flex: none; transition: color .15s, border-color .15s, transform .15s; }
+.share-ic:hover { color: var(--accent); border-color: var(--accent); transform: rotate(-12deg); }
