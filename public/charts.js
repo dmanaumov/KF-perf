@@ -1,12 +1,21 @@
 /* Общие утилиты: форматирование и лёгкие SVG-графики с ховер-подсказками. */
 (function () {
   const NB = ' ';
+  // Валюта отображения: валюта проекта (Настройки проекта → «Валюта»). F.setCur('USD') на странице проекта.
+  const SYM = { RUB: '₽', USD: '$', EUR: '€', KZT: '₸' };
+  let CUR = 'RUB';
   const F = {
-    money(v, cur = '₽') {
+    setCur(code) { CUR = SYM[code] ? code : 'RUB'; },
+    cur() { return CUR; },
+    sym(code) { return SYM[code || CUR] || '₽'; },
+    money(v, cur) {
       if (v === null || v === undefined || !isFinite(v)) return '—';
+      const s = cur || SYM[CUR];
       const a = Math.abs(v);
-      if (a >= 1e6) return (v / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: a >= 1e7 ? 1 : 2 }) + NB + 'млн' + NB + cur;
-      return Math.round(v).toLocaleString('ru-RU') + NB + cur;
+      if (a >= 1e6) return (v / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: a >= 1e7 ? 1 : 2 }) + NB + 'млн' + NB + s;
+      // $ и € — с центами для небольших сумм (CPL $1,23), ₽ и ₸ — целыми
+      const cents = (s === '$' || s === '€') && a < 1000 ? 2 : 0;
+      return v.toLocaleString('ru-RU', { maximumFractionDigits: cents, minimumFractionDigits: cents }) + NB + s;
     },
     moneyShort(v) {
       if (v === null || v === undefined || !isFinite(v)) return '—';

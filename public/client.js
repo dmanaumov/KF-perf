@@ -30,6 +30,7 @@
   }
 
   function render(d) {
+    F.setCur(d.project.currency);
     const s = d.summary;
     const t = s.totals;
     const pv = s.prev;

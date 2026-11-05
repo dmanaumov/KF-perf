@@ -30,7 +30,7 @@ r.get('/:token', wrap(async (req, res) => {
     p.manager_id ? db.one('SELECT name FROM users WHERE id=$1', [p.manager_id]) : null,
   ]);
   const out = {
-    project: { name: p.name, client_name: p.client_name, site_url: p.site_url, services: p.services, kpi_type: p.kpi_type, manager: manager && manager.name },
+    project: { name: p.name, client_name: p.client_name, currency: p.currency, site_url: p.site_url, services: p.services, kpi_type: p.kpi_type, manager: manager && manager.name },
     platforms: integ.map((i) => ({ id: i.platform, label: (BY_ID[i.platform] || {}).label })),
     summary,
     pacing: { month: pace.month, elapsed: pace.elapsed, total: pace.total, plan: pace.plan, fact: pace.fact, spendPct: pace.spendPct, leadsPct: pace.leadsPct, forecastSpend: pace.forecastSpend, forecastLeads: pace.forecastLeads },

@@ -187,7 +187,10 @@ async function geoSummary(projectId) {
 }
 
 // Алерты — вычисляются на лету, без хранения
+const SYM = { RUB: '₽', USD: '$', EUR: '€', KZT: '₸' };
+
 async function alerts(project, pace) {
+  const sym = SYM[project.currency] || '₽';
   const out = [];
   const add = (level, area, text) => out.push({ level, area, text, project_id: project.id, project: project.name });
   const p = pace || (await pacing(project.id));
@@ -196,11 +199,11 @@ async function alerts(project, pace) {
     else if (p.pacePct < 80 && p.elapsed >= 5) add('mid', 'ads', `Недорасход: прогноз ${Math.round(p.pacePct)}% бюджета — кампании открутят меньше плана`);
   }
   if (p.plan && p.plan.cpl_target && p.fact.cpl && p.fact.leads >= 3 && p.fact.cpl > p.plan.cpl_target * 1.2) {
-    add('high', 'ads', `CPL ${Math.round(p.fact.cpl).toLocaleString('ru')} ₽ выше цели на ${Math.round((p.fact.cpl / p.plan.cpl_target - 1) * 100)}%`);
+    add('high', 'ads', `CPL ${Math.round(p.fact.cpl).toLocaleString('ru')} ${sym} выше цели на ${Math.round((p.fact.cpl / p.plan.cpl_target - 1) * 100)}%`);
   }
   const d = today();
   const last3 = await totals(project.id, addDays(d, -3), addDays(d, -1));
-  if (last3.spend > 0 && last3.leads === 0 && project.kpi_type !== 'traffic') add('high', 'ads', `3 дня без лидов при расходе ${Math.round(last3.spend).toLocaleString('ru')} ₽`);
+  if (last3.spend > 0 && last3.leads === 0 && project.kpi_type !== 'traffic') add('high', 'ads', `3 дня без лидов при расходе ${Math.round(last3.spend).toLocaleString('ru')} ${sym}`);
   const integ = await db.all("SELECT platform, status, last_error, last_sync_at FROM integrations WHERE project_id=$1 AND enabled", [project.id]);
   integ.filter((i) => i.status === 'error').forEach((i) => add('mid', 'sync', `${(BY_ID[i.platform] || {}).label || i.platform}: ошибка синхронизации — ${String(i.last_error || '').slice(0, 120)}`));
   integ.filter((i) => i.status === 'manual' && i.last_sync_at && Date.now() - new Date(i.last_sync_at) > 8 * 86400000)

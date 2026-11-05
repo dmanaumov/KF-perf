@@ -186,6 +186,10 @@
     const d = await get(`/overview?month=${overviewMonth}`);
     const isCur = overviewMonth === monthStart(today());
     const t = d.totals;
+    // итоги — в общей валюте проектов; разные валюты сложить нельзя честно, предупреждаем
+    const curs = [...new Set(d.projects.map((x) => x.currency || 'RUB'))];
+    F.setCur(curs.length === 1 ? curs[0] : 'RUB');
+    const mixedCur = curs.length > 1;
     const spendPct = t.budget ? t.spend / t.budget * 100 : null;
     const elapsed = isCur ? +today().slice(8) : +monthEnd(overviewMonth).slice(8);
     const expected = t.budget ? t.budget * elapsed / +monthEnd(overviewMonth).slice(8) : null;
@@ -206,7 +210,7 @@
         </div>
       </div>
       <div class="grid g-4">
-        <div class="card kpi"><div class="label">Расход</div><div class="value">${F.money(t.spend)}</div>
+        <div class="card kpi"><div class="label">Расход${mixedCur ? ' <span title="Проекты ведутся в разных валютах — итог сложен без пересчёта" style="cursor:help">⚠</span>' : ''}</div><div class="value">${F.money(t.spend)}</div>
           <div class="foot">${t.budget ? `из ${F.money(t.budget)} · ${F.pct(spendPct)}` : 'план не задан'}</div>
           ${t.budget ? `<div class="bar-track"><div class="bar-fill ${pctClass(spendPct / (expected / t.budget), 85, 112)}" style="width:${Math.min(100, spendPct)}%"></div>${expected ? `<div class="bar-mark" style="left:${Math.min(100, expected / t.budget * 100)}%" title="Ожидаемый расход на сегодня"></div>` : ''}</div>` : ''}
         </div>
@@ -229,11 +233,11 @@
           return `<tr class="click" data-href="#/p/${p.id}">
             <td><div class="pname">${esc(p.name)}<small>${esc(p.client_name || '')}${p.status === 'paused' ? ' · на паузе' : ''}</small></div><div class="row" style="gap:4px;margin-top:4px">${svcChips(p.services)}</div></td>
             <td><div class="row" style="gap:4px">${p.platforms.filter((x) => x !== 'metrika').map(pchip).join('') || '<span class="faint">—</span>'}</div></td>
-            <td class="nowrap"><div class="num" style="font-weight:700">${F.moneyShort(pc.spend)} <span class="faint">/ ${pc.budget ? F.moneyShort(pc.budget) : '—'}</span></div>
+            <td class="nowrap"><div class="num" style="font-weight:700">${F.moneyShort(pc.spend)} <span class="faint">/ ${pc.budget ? F.moneyShort(pc.budget) : '—'} ${F.sym(p.currency)}</span></div>
               ${pc.budget ? `<span class="mini-bar"><span class="${pctClass(pc.pacePct, 85, 112)}" style="width:${Math.min(100, pc.spendPct)}%"></span></span>` : ''}</td>
             <td class="r">${pc.pacePct ? `<span class="chip ${pctClass(pc.pacePct, 85, 112) || 'good'}">${F.pct(pc.pacePct)}</span>` : '—'}</td>
             <td class="r num"><b>${F.int(pc.leads)}</b>${pc.leadsPlan ? `<span class="faint"> / ${F.int(pc.leadsPlan)}</span>` : ''}</td>
-            <td class="r num nowrap"><b class="${pc.cplTarget && pc.cpl > pc.cplTarget * 1.1 ? 'overdue' : ''}">${F.money(pc.cpl)}</b>${pc.cplTarget ? `<div class="faint" style="font-size:12px">цель ${F.money(pc.cplTarget)}</div>` : ''}</td>
+            <td class="r num nowrap"><b class="${pc.cplTarget && pc.cpl > pc.cplTarget * 1.1 ? 'overdue' : ''}">${F.money(pc.cpl, F.sym(p.currency))}</b>${pc.cplTarget ? `<div class="faint" style="font-size:12px">цель ${F.money(pc.cplTarget, F.sym(p.currency))}</div>` : ''}</td>
             <td class="r num">${p.seo ? `${p.seo.top10}<span class="faint"> / ${p.seo.total}</span>` : '<span class="faint">—</span>'}</td>
             <td class="r num">${p.geo && p.geo.checks ? F.pct(p.geo.visibility) : '<span class="faint">—</span>'}</td>
             <td class="r num">${p.tasks.open}${p.tasks.overdue ? ` <span class="overdue" title="просрочено">· ⚠${p.tasks.overdue}</span>` : ''}</td>
@@ -318,6 +322,7 @@
 
   async function pageProject(main, id, tab) {
     const p = await get(`/projects/${id}`);
+    F.setCur(p.currency);
     const tabs = [['summary', 'Сводка'], ['campaigns', 'Кампании'], ['tasks', 'Задачи']];
     if (p.services.includes('seo')) tabs.push(['seo', 'SEO']);
     if (p.services.includes('geo')) tabs.push(['geo', 'GEO / AI']);
@@ -374,7 +379,7 @@
   const adFilter = {};
   const adQ = (p) => (adFilter[p.id] ? `&ad=${encodeURIComponent(adFilter[p.id])}` : '');
   const adSeg = (s, p) => (s.adNames && s.adNames.length ? `<div class="row ad-seg" style="margin:-4px 0 16px;gap:6px">
-      <span class="faint" style="font-size:12.5px;font-weight:700">Объявление:</span>
+      <span class="faint" style="font-size:12.5px;font-weight:700">Компания:</span>
       <div class="seg" id="adseg"><button data-ad="" class="${!s.ad ? 'active' : ''}">Все</button>${s.adNames.map((a) => `<button data-ad="${esc(a)}" class="${s.ad === a ? 'active' : ''}">${esc(a)}</button>`).join('')}</div>
     </div>` : '');
   const bindAd = (root, p, again) => { $$('#adseg button, [data-adrow]', root).forEach((b) => { b.onclick = () => { adFilter[p.id] = b.dataset.ad ?? b.dataset.adrow; again(); }; }); };
@@ -387,10 +392,10 @@
       <td class="r">${F.money(r.spend)}</td><td class="r">${F.int(r.impressions)}</td><td class="r">${F.int(r.clicks)}</td><td class="r">${F.pct(r.ctr, 2)}</td>
       <td class="r strong">${F.int(r.leads)}</td><td class="r strong">${F.money(r.cpl)}</td><td class="r">${F.pct(r.cr, 1)}</td>
       <td style="width:120px"><span class="mini-bar"><span style="width:${sum.leads ? r.leads / sum.leads * 100 : 0}%"></span></span></td></tr>`;
-    return `<div class="card mt"><div class="card-head"><h3>Раскладка по объявлениям</h3><span class="hint">за период · клик по строке — показать только его</span></div>
-      <div class="table-wrap"><table class="t"><thead><tr><th>Объявление</th><th class="r">Расход</th><th class="r">Показы</th><th class="r">Клики</th><th class="r">CTR</th><th class="r">${sales ? 'Конв.' : 'Лиды'}</th><th class="r">CPL</th><th class="r">CR</th><th>Доля лидов</th></tr></thead><tbody>
+    return `<div class="card mt"><div class="card-head"><h3>Раскладка по компаниям</h3><span class="hint">за период · клик по строке — показать только его</span></div>
+      <div class="table-wrap"><table class="t"><thead><tr><th>Компания</th><th class="r">Расход</th><th class="r">Показы</th><th class="r">Клики</th><th class="r">CTR</th><th class="r">${sales ? 'Конв.' : 'Лиды'}</th><th class="r">CPL</th><th class="r">CR</th><th>Доля лидов</th></tr></thead><tbody>
       ${line(d(sum), 'Все (суммарно)', '', 'ad-total')}
-      ${s.byAd.map((r) => line(d(r), r.ad_name ? esc(r.ad_name) : '<span class="faint">без названия объявления</span>', r.ad_name || '')).join('')}
+      ${s.byAd.map((r) => line(d(r), r.ad_name ? esc(r.ad_name) : '<span class="faint">без компании</span>', r.ad_name || '')).join('')}
       </tbody></table></div></div>`;
   }
 
@@ -423,7 +428,7 @@
         </div>
         <div class="card">
           <div class="card-head"><h3>План на ${esc(F.month(pc.month).split(' ')[0])}</h3><a class="hint" href="#/p/${p.id}/plan">изменить</a></div>
-          ${s.ad ? '<div class="faint" style="font-size:12px;margin:-8px 0 10px">план и прогноз — по проекту целиком, без фильтра объявления</div>' : ''}
+          ${s.ad ? '<div class="faint" style="font-size:12px;margin:-8px 0 10px">план и прогноз — по проекту целиком, без фильтра компании</div>' : ''}
           ${pc.plan ? pacingHtml(pc) : `<div class="empty">План на месяц не задан.<br><a class="btn sm mt" href="#/p/${p.id}/plan">Задать план</a></div>`}
         </div>
       </div>
@@ -475,7 +480,7 @@
     const draw = () => {
       const rows = s.byCampaign.filter((c) => !filter || c.platform === filter).sort((a, b) => (b[sort] ?? -1) - (a[sort] ?? -1));
       const tot = rows.reduce((o, r) => { ['impressions', 'clicks', 'spend', 'leads', 'revenue'].forEach((k) => { o[k] += r[k]; }); return o; }, { impressions: 0, clicks: 0, spend: 0, leads: 0, revenue: 0 });
-      $('#ctab').innerHTML = `<table class="t"><thead><tr><th>Канал</th><th>Кампания</th>${hasAd ? '<th>Объявление</th>' : ''}
+      $('#ctab').innerHTML = `<table class="t"><thead><tr><th>Канал</th><th>Кампания</th>${hasAd ? '<th>Компания</th>' : ''}
         ${[['impressions', 'Показы'], ['clicks', 'Клики'], ['ctr', 'CTR'], ['spend', 'Расход'], ['leads', 'Лиды'], ['cpl', 'CPL'], ['cr', 'CR']].map(([k, l]) => `<th class="r" style="cursor:pointer" data-s="${k}">${l}${sort === k ? ' ↓' : ''}</th>`).join('')}</tr></thead><tbody>
         ${rows.map((c) => `<tr><td>${pchip(c.platform)}</td><td class="strong">${esc(c.campaign_name || c.campaign_id || '—')}</td>${hasAd ? `<td>${esc(c.ad_name || '')}</td>` : ''}<td class="r">${F.int(c.impressions)}</td><td class="r">${F.int(c.clicks)}</td><td class="r">${F.pct(c.ctr, 2)}</td><td class="r strong">${F.money(c.spend)}</td><td class="r strong">${F.int(c.leads)}</td><td class="r">${F.money(c.cpl)}</td><td class="r">${F.pct(c.cr, 1)}</td></tr>`).join('') || '<tr><td colspan="${hasAd ? 10 : 9}"><div class="empty">Нет данных за период</div></td></tr>'}
         </tbody>${rows.length ? `<tfoot><tr><td colspan="${hasAd ? 3 : 2}">Итого</td><td class="r">${F.int(tot.impressions)}</td><td class="r">${F.int(tot.clicks)}</td><td class="r">${F.pct(tot.clicks / tot.impressions * 100, 2)}</td><td class="r">${F.money(tot.spend)}</td><td class="r">${F.int(tot.leads)}</td><td class="r">${F.money(tot.leads ? tot.spend / tot.leads : null)}</td><td class="r">${F.pct(tot.leads / tot.clicks * 100, 1)}</td></tr></tfoot>` : ''}</table>`;
@@ -938,8 +943,8 @@
     $$('[data-man]', body).forEach((b) => {
       b.onclick = () => modal('Данные за день', `<form class="form" id="mf">
         <div class="two"><label class="f">Дата<input class="inp" type="date" name="date" value="${addDays(today(), -1)}" required></label><label class="f">Кампания<input class="inp" name="campaign" placeholder="необязательно"></label></div>
-        <div class="three"><label class="f">Показы<input class="inp" name="impressions" inputmode="numeric"></label><label class="f">Клики<input class="inp" name="clicks" inputmode="numeric"></label><label class="f">Расход, ₽<input class="inp" name="spend" inputmode="decimal"></label></div>
-        <div class="two"><label class="f">Лиды<input class="inp" name="leads" inputmode="numeric"></label><label class="f">Выручка, ₽<input class="inp" name="revenue" inputmode="decimal"></label></div>
+        <div class="three"><label class="f">Показы<input class="inp" name="impressions" inputmode="numeric"></label><label class="f">Клики<input class="inp" name="clicks" inputmode="numeric"></label><label class="f">Расход, ${F.sym()}<input class="inp" name="spend" inputmode="decimal"></label></div>
+        <div class="two"><label class="f">Лиды<input class="inp" name="leads" inputmode="numeric"></label><label class="f">Выручка, ${F.sym()}<input class="inp" name="revenue" inputmode="decimal"></label></div>
         <div class="modal-foot"><button class="btn primary">Сохранить</button></div></form>`, {
         onMount: (el, close) => { $('#mf', el).onsubmit = async (e) => { e.preventDefault(); const v = formData(e.target); ['impressions', 'clicks', 'spend', 'leads', 'revenue'].forEach((k) => { v[k] = String(v[k]).replace(/\s/g, '').replace(',', '.'); }); try { await post(`/projects/${p.id}/integrations/${b.dataset.man}/manual`, v); close(); toast('Сохранено'); reload(); } catch (err) { fail(err); } }; },
       });
@@ -1011,7 +1016,7 @@
       <td><input class="inp num" name="cpl_target" value="${r.cpl_target ?? ''}" inputmode="decimal"></td><td><input class="inp num" name="revenue" value="${r.revenue ?? ''}" inputmode="decimal"></td></tr>`; };
     body.innerHTML = `<div class="card">
       <div class="card-head"><h3>План / KPI на месяц</h3><select class="inp" id="pm" style="width:auto">${months.map((m) => opt(m, F.month(m), month)).join('')}</select></div>
-      <div class="table-wrap"><table class="t" id="pt"><thead><tr><th>Уровень</th><th>Бюджет, ₽</th><th>Лиды</th><th>Целевой CPL, ₽</th><th>Выручка, ₽</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="t" id="pt"><thead><tr><th>Уровень</th><th>Бюджет, ${F.sym()}</th><th>Лиды</th><th>Целевой CPL, ${F.sym()}</th><th>Выручка, ${F.sym()}</th></tr></thead><tbody>
         ${line('', 'Проект целиком')}${platforms.map((x) => line(x, plat(x).label)).join('')}
       </tbody></table></div>
       <p class="faint" style="font-size:12px">План по проекту — основа пейсинга и сигналов. Разбивка по каналам — по желанию. Пустые строки не сохраняются.</p>
