@@ -397,3 +397,14 @@ textarea.secrets-text { min-height: 340px; font-family: ui-monospace, SFMono-Reg
 .t tr.ad-active td:first-child { box-shadow: inset 3px 0 0 var(--kf-coral); }
 
 textarea.inp.sheet-urls { min-height: 42px; resize: vertical; font-size: 13px; }
+
+/* лента компаний со стрелками */
+.ad-seg { flex-wrap: nowrap; min-width: 0; }
+.ad-scroll { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1 1 auto; }
+.ad-scroll .seg { flex: 1 1 auto; min-width: 0; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; scroll-behavior: smooth; }
+.ad-scroll .seg::-webkit-scrollbar { display: none; }
+.ad-scroll .seg button { flex: none; white-space: nowrap; }
+.ad-arr { flex: none; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--surface); font-size: 20px; line-height: 1; cursor: pointer; color: var(--ink); display: grid; place-items: center; padding: 0 0 2px; }
+.ad-arr:hover { border-color: var(--accent); color: var(--accent); }
+.ad-arr.off { opacity: .3; pointer-events: none; }
+.cur-pick { border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; color: var(--ink-2); cursor: pointer; }

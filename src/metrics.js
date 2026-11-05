@@ -38,7 +38,9 @@ async function byAd(projectId, from, to) {
 }
 
 async function adNames(projectId) {
-  return (await db.all(`SELECT DISTINCT ad_name FROM stats_daily WHERE project_id=$1 AND ad_name IS NOT NULL ORDER BY ad_name`, [projectId])).map((r) => r.ad_name);
+  const names = (await db.all(`SELECT DISTINCT ad_name FROM stats_daily WHERE project_id=$1 AND ad_name IS NOT NULL`, [projectId])).map((r) => r.ad_name);
+  // «естественная» сортировка: «Вездеходы 2» раньше «Вездеходы 10»
+  return names.sort(new Intl.Collator('ru', { numeric: true, sensitivity: 'base' }).compare);
 }
 
 async function projectSummary(projectId, from, to, { campaigns = true, ad = '' } = {}) {

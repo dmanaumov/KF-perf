@@ -330,7 +330,7 @@
     main.innerHTML = `
       <div class="crumbs"><a href="#/">Обзор</a> / ${esc(p.client_name || 'Проект')}</div>
       <div class="page-head">
-        <div><h1>${esc(p.name)}</h1><div class="sub row" style="gap:6px">${svcChips(p.services)}${p.site_url ? `<a class="faint" href="${esc(p.site_url)}" target="_blank" rel="noopener">${esc(p.site_url.replace(/^https?:\/\//, ''))}</a>` : ''}${p.manager ? `<span class="faint">· ${esc(p.manager.name)}</span>` : ''}</div></div>
+        <div><h1>${esc(p.name)}</h1><div class="sub row" style="gap:6px">${svcChips(p.services)}<select id="pcur" class="cur-pick" title="Валюта проекта — в ней показываются все суммы">${[['RUB', '₽ RUB'], ['USD', '$ USD'], ['EUR', '€ EUR'], ['KZT', '₸ KZT']].map(([c, l]) => opt(c, l, p.currency)).join('')}</select>${p.site_url ? `<a class="faint" href="${esc(p.site_url)}" target="_blank" rel="noopener">${esc(p.site_url.replace(/^https?:\/\//, ''))}</a>` : ''}${p.manager ? `<span class="faint">· ${esc(p.manager.name)}</span>` : ''}</div></div>
         <div class="row"><button class="btn primary" id="ptask">＋ Задача</button><button class="btn" id="clink">Кабинет клиента</button><button class="btn" id="pset">Настройки</button></div>
       </div>
       <div class="tabs" id="ptabs">${tabs.map(([k, l]) => `<button data-t="${k}" class="${k === tab ? 'active' : ''}">${l}</button>`).join('')}</div>
@@ -339,6 +339,12 @@
     if (p.has_secrets) $('#ptabs [data-t="secrets"]').classList.add('filled');
     $('#pset').onclick = () => projectModal(p);
     $('#clink').onclick = () => clientLinkModal(p);
+    // Валюта прямо из шапки: меняется сразу для всего проекта (суммы в таблицах/кабинетах
+    // должны быть в этой валюте — для таблиц в другой валюте есть «курс валюты ×»)
+    $('#pcur').onchange = async (e) => {
+      try { await put(`/projects/${p.id}`, { currency: e.target.value }); toast(`Валюта проекта: ${F.sym(e.target.value)}`); route(); }
+      catch (err) { fail(err); e.target.value = p.currency; }
+    };
     // Задача прямо из шапки проекта (на любой вкладке). После создания вкладка «Задачи»
     // перерисовывается, на остальных — просто тост, чтобы не сбрасывать то, что смотрят.
     $('#ptask').onclick = () => taskModal({ project_id: p.id }, () => {
@@ -380,9 +386,34 @@
   const adQ = (p) => (adFilter[p.id] ? `&ad=${encodeURIComponent(adFilter[p.id])}` : '');
   const adSeg = (s, p) => (s.adNames && s.adNames.length ? `<div class="row ad-seg" style="margin:-4px 0 16px;gap:6px">
       <span class="faint" style="font-size:12.5px;font-weight:700">Компания:</span>
-      <div class="seg" id="adseg"><button data-ad="" class="${!s.ad ? 'active' : ''}">Все</button>${s.adNames.map((a) => `<button data-ad="${esc(a)}" class="${s.ad === a ? 'active' : ''}">${esc(a)}</button>`).join('')}</div>
+      <div class="ad-scroll">
+        <button type="button" class="ad-arr" data-dir="-1" aria-label="Прокрутить влево">‹</button>
+        <div class="seg" id="adseg"><button data-ad="" class="${!s.ad ? 'active' : ''}">Все</button>${s.adNames.map((a) => `<button data-ad="${esc(a)}" class="${s.ad === a ? 'active' : ''}">${esc(a)}</button>`).join('')}</div>
+        <button type="button" class="ad-arr" data-dir="1" aria-label="Прокрутить вправо">›</button>
+      </div>
+      <span class="faint nowrap" style="font-size:12px">${s.adNames.length} шт.</span>
     </div>` : '');
-  const bindAd = (root, p, again) => { $$('#adseg button, [data-adrow]', root).forEach((b) => { b.onclick = () => { adFilter[p.id] = b.dataset.ad ?? b.dataset.adrow; again(); }; }); };
+  // Стрелки у ленты компаний: видны, только когда есть куда листать
+  function initAdScroll(root) {
+    const wrap = $('.ad-scroll', root);
+    if (!wrap) return;
+    const strip = $('#adseg', wrap);
+    const [l, r] = $$('.ad-arr', wrap);
+    const upd = () => {
+      l.classList.toggle('off', strip.scrollLeft <= 2);
+      r.classList.toggle('off', strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 2);
+    };
+    [l, r].forEach((b) => { b.onclick = () => strip.scrollBy({ left: +b.dataset.dir * strip.clientWidth * 0.7, behavior: 'smooth' }); });
+    strip.addEventListener('scroll', upd, { passive: true });
+    strip.addEventListener('wheel', (e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { strip.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+    const act = $('button.active', strip);
+    if (act) strip.scrollLeft = act.offsetLeft - strip.clientWidth / 2 + act.clientWidth / 2;
+    upd();
+    if (wrap._ro) wrap._ro.disconnect();
+    wrap._ro = new ResizeObserver(upd);
+    wrap._ro.observe(strip);
+  }
+  const bindAd = (root, p, again) => { $$('#adseg button, [data-adrow]', root).forEach((b) => { b.onclick = () => { adFilter[p.id] = b.dataset.ad ?? b.dataset.adrow; again(); }; }); initAdScroll(root); };
 
   function adTable(s, sales) {
     if (!s.byAd || !s.byAd.length) return '';
