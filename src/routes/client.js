@@ -16,6 +16,14 @@ r.use('/:token', wrap(async (req, res, next) => {
   next();
 }));
 
+// PDF-отчёт для клиента — по всему проекту, без внутренних данных
+r.get('/:token/report.pdf', wrap(async (req, res) => {
+  const to = isDate(req.query.to) ? req.query.to : today();
+  const from = isDate(req.query.from) ? req.query.from : monthStart(to);
+  if (from > to) return res.status(400).json({ error: 'bad_request', message: 'Неверный период' });
+  await require('../report').send(res, req.project, { from, to, ad: String(req.query.ad || '').slice(0, 300) });
+}));
+
 r.get('/:token', wrap(async (req, res) => {
   const p = req.project;
   const to = isDate(req.query.to) ? req.query.to : today();

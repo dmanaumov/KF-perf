@@ -127,7 +127,7 @@ r.get('/overview', wrap(async (req, res) => {
     ]);
     allAlerts.push(...al);
     rows.push({
-      id: p.id, name: p.name, client_name: p.client_name, status: p.status, services: p.services, kpi_type: p.kpi_type, manager_name: p.manager_name,
+      id: p.id, name: p.name, client_name: p.client_name, currency: p.currency, status: p.status, services: p.services, kpi_type: p.kpi_type, manager_name: p.manager_name,
       platforms: [...new Set(integ.map((i) => i.platform))],
       syncErrors: integ.filter((i) => i.status === 'error').length,
       pacing: { budget: pace.plan && pace.plan.budget, leadsPlan: pace.plan && pace.plan.leads, cplTarget: pace.plan && pace.plan.cpl_target, spend: pace.fact.spend, leads: pace.fact.leads, cpl: pace.fact.cpl, revenue: pace.fact.revenue, romi: pace.fact.romi, spendPct: pace.spendPct, pacePct: pace.pacePct, leadsPct: pace.leadsPct, expectedSpend: pace.expectedSpend },
@@ -235,6 +235,14 @@ r.get(`${P}/summary`, loadProject, wrap(async (req, res) => {
   if (from > to) return bad(res, 'Неверный период');
   const [summary, pace] = await Promise.all([metrics.projectSummary(req.project.id, from, to, { ad: String(req.query.ad || '').slice(0, 300) }), metrics.pacing(req.project.id)]);
   res.json({ ...summary, pacing: pace, alerts: await metrics.alerts(req.project, pace) });
+}));
+
+// PDF «Отчёт об эффективности лидогенерации» — тот же период и фильтр компании, что на «Сводке»
+r.get(`${P}/report.pdf`, loadProject, wrap(async (req, res) => {
+  const to = isDate(req.query.to) ? req.query.to : today();
+  const from = isDate(req.query.from) ? req.query.from : monthStart(to);
+  if (from > to) return bad(res, 'Неверный период');
+  await require('../report').send(res, req.project, { from, to, ad: String(req.query.ad || '').slice(0, 300) });
 }));
 
 r.get(`${P}/plans`, loadProject, wrap(async (req, res) => {

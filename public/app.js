@@ -331,7 +331,7 @@
       <div class="crumbs"><a href="#/">Обзор</a> / ${esc(p.client_name || 'Проект')}</div>
       <div class="page-head">
         <div><h1>${esc(p.name)}</h1><div class="sub row" style="gap:6px">${svcChips(p.services)}<select id="pcur" class="cur-pick" title="Валюта проекта — в ней показываются все суммы">${[['RUB', '₽ RUB'], ['USD', '$ USD'], ['EUR', '€ EUR'], ['KZT', '₸ KZT']].map(([c, l]) => opt(c, l, p.currency)).join('')}</select>${p.site_url ? `<a class="faint" href="${esc(p.site_url)}" target="_blank" rel="noopener">${esc(p.site_url.replace(/^https?:\/\//, ''))}</a>` : ''}${p.manager ? `<span class="faint">· ${esc(p.manager.name)}</span>` : ''}</div></div>
-        <div class="row"><button class="btn primary" id="ptask">＋ Задача</button><button class="btn" id="clink">Кабинет клиента</button><button class="btn" id="pset">Настройки</button></div>
+        <div class="row"><button class="btn primary" id="ptask">＋ Задача</button><button class="btn" id="ppdf" title="Отчёт об эффективности лидогенерации за выбранный на «Сводке» период и компанию">⬇ PDF-отчёт</button><button class="btn" id="clink">Кабинет клиента</button><button class="btn" id="pset">Настройки</button></div>
       </div>
       <div class="tabs" id="ptabs">${tabs.map(([k, l]) => `<button data-t="${k}" class="${k === tab ? 'active' : ''}">${l}</button>`).join('')}</div>
       <div id="pbody"><div class="empty">Загрузка…</div></div>`;
@@ -339,6 +339,14 @@
     if (p.has_secrets) $('#ptabs [data-t="secrets"]').classList.add('filled');
     $('#pset').onclick = () => projectModal(p);
     $('#clink').onclick = () => clientLinkModal(p);
+    $('#ppdf').onclick = () => {
+      const [from, to] = periodRange();
+      const a = document.createElement('a');
+      a.href = `/api/projects/${p.id}/report.pdf?from=${from}&to=${to}${adQ(p)}`;
+      a.download = '';
+      document.body.appendChild(a); a.click(); a.remove();
+      toast('Готовлю PDF…');
+    };
     // Валюта прямо из шапки: меняется сразу для всего проекта (суммы в таблицах/кабинетах
     // должны быть в этой валюте — для таблиц в другой валюте есть «курс валюты ×»)
     $('#pcur').onchange = async (e) => {

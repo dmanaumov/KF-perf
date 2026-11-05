@@ -44,7 +44,7 @@
     app.innerHTML = `
       <div class="client-top"><div class="in">
         <div class="row between"><div class="brand" style="padding:0"><div class="brand-mark">КФ</div><div class="brand-name">КонтентФерма<small>отчёт по продвижению</small></div></div>
-        <div class="seg" id="per">${[['month', 'Этот месяц'], ['prev', 'Прошлый месяц'], ['30', '30 дней'], ['90', '90 дней']].map(([k, l]) => `<button data-p="${k}" class="${k === period ? 'active' : ''}">${l}</button>`).join('')}</div></div>
+        <div class="row"><a class="btn sm" id="pdf" download style="background:#fff;color:var(--kf-green);border-color:#fff">⬇ PDF-отчёт</a><div class="seg" id="per">${[['month', 'Этот месяц'], ['prev', 'Прошлый месяц'], ['30', '30 дней'], ['90', '90 дней']].map(([k, l]) => `<button data-p="${k}" class="${k === period ? 'active' : ''}">${l}</button>`).join('')}</div></div></div>
         <h1>${esc(d.project.name)}</h1>
         <div class="sub">${F.date(s.from)} — ${F.date(s.to)}${d.project.manager ? ` · ваш менеджер: ${esc(d.project.manager)}` : ''}</div>
       </div></div>
@@ -102,6 +102,8 @@
         <p class="faint" style="text-align:center;font-size:12px;margin-top:28px">Данные обновляются автоматически из рекламных кабинетов и Яндекс Метрики · КонтентФерма</p>
       </div>`;
     document.querySelectorAll('#per button').forEach((b) => { b.onclick = () => { period = b.dataset.p; load(); }; });
+    const [pf, pt] = range();
+    $('#pdf').href = `/api/client/${encodeURIComponent(token)}/report.pdf?from=${pf}&to=${pt}`;
     if (hasAds) {
       Charts.bars($('#c1'), s.daily.map((x) => ({ x: x.date, y: x.spend })), { height: 180 });
       Charts.bars($('#c2'), s.daily.map((x) => ({ x: x.date, y: x.leads })), { height: 180, color: 'var(--chart-2)', axisFmt: F.int, fmt: F.int });
