@@ -256,4 +256,165 @@ async function send(res, project, { from, to, ad }) {
   doc.pipe(res);
 }
 
-module.exports = { build, send, addDays };
+// ---------- PDF: сравнение гипотез ----------
+const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
+
+async function buildCompare(project, { from, to, items }) {
+  const cur = project.currency || 'RUB';
+  const cmp = await metrics.compareItems(project.id, from, to, items);
+  const list = cmp.items.map((x, i) => ({ ...x, color: SERIES[i % SERIES.length], label: x.ad_name ? `${x.name} · ${x.ad_name}` : x.name }));
+  const note = await vatNote(project.id);
+
+  const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true, info: { Title: `Сравнение гипотез лидогенерации — ${project.name}`, Author: 'КонтентФерма' } });
+  Object.entries(FONTS).forEach(([k, f]) => doc.registerFont(k, f));
+  const W = doc.page.width;
+  const L = 40;
+  const R = W - 40;
+  const CW = R - L;
+  const ensure = (h) => { if (doc.y + h > doc.page.height - 60) { doc.addPage(); doc.y = 40; } };
+
+  // шапка
+  doc.rect(0, 0, W, 120).fill(C.green);
+  doc.roundedRect(L, 28, 34, 34, 9).fill(C.coral);
+  doc.font('B').fontSize(13).fillColor('#fff').text('КФ', L, 37, { width: 34, align: 'center' });
+  doc.font('M').fontSize(10).fillColor('#fff').opacity(0.75).text('КонтентФерма', L + 44, 31).opacity(1);
+  doc.font('B').fontSize(10).fillColor('#fff').text('Сравнение гипотез лидогенерации', L + 44, 45);
+  doc.font('B').fontSize(20).fillColor('#fff').text(project.name, L, 72, { width: CW });
+  doc.font('R').fontSize(10).fillColor('#fff').opacity(0.85).text(`Период: ${fmtDate(from)} — ${fmtDate(to)}   ·   гипотез: ${list.length}`, L, 98).opacity(1);
+  doc.y = 140;
+
+  // лучшие значения
+  const best = {
+    leads: Math.max(...list.map((x) => x.totals.leads)),
+    cpl: Math.min(...list.map((x) => x.totals.cpl).filter((v) => v !== null && isFinite(v))),
+    cr: Math.max(...list.map((x) => x.totals.cr || 0)),
+  };
+
+  // таблица
+  const cols = [{ t: 'Гипотеза', w: 0.34 }, { t: 'Затраты', w: 0.13, r: true }, { t: 'Заявки', w: 0.1, r: true }, { t: 'Стоимость заявки', w: 0.15, r: true }, { t: 'Переходы', w: 0.12, r: true }, { t: 'Конверсия в заявку', w: 0.16, r: true }];
+  const widths = cols.map((c) => c.w * CW);
+  doc.font('M').fontSize(6.8);
+  const hh = Math.max(20, ...cols.map((c, i) => doc.heightOfString(c.t.toUpperCase(), { width: widths[i] - 12 }) + 12));
+  let y = doc.y;
+  doc.rect(L, y, CW, hh).fill(C.soft);
+  let x = L;
+  cols.forEach((c, i) => { doc.font('M').fontSize(6.8).fillColor(C.ink2).text(c.t.toUpperCase(), x + 6, y + 6, { width: widths[i] - 12, align: c.r ? 'right' : 'left' }); x += widths[i]; });
+  doc.y = y + hh;
+  list.forEach((it) => {
+    const t = it.totals;
+    const cells = [
+      [it.label, false], [fmtMoney(t.spend, cur), false], [fmtInt(t.leads), t.leads === best.leads && t.leads > 0],
+      [fmtMoney(t.cpl, cur), t.cpl === best.cpl], [fmtInt(t.clicks), false], [fmtPct(t.cr), t.cr === best.cr && t.cr > 0],
+    ];
+    doc.font('R').fontSize(8.5);
+    const h = Math.max(22, doc.heightOfString(it.label, { width: widths[0] - 24 }) + 12);
+    ensure(h);
+    y = doc.y;
+    x = L;
+    cells.forEach(([v, win], i) => {
+      if (i === 0) {
+        doc.roundedRect(x + 6, y + 8, 8, 8, 2).fill(it.color);
+        doc.font('M').fontSize(8.5).fillColor(C.ink).text(v, x + 18, y + 6, { width: widths[0] - 24 });
+      } else {
+        doc.font(win ? 'B' : 'R').fontSize(8.5).fillColor(win ? C.good : C.ink).text(v, x + 6, y + 6, { width: widths[i] - 12, align: 'right' });
+      }
+      x += widths[i];
+    });
+    doc.moveTo(L, y + h).lineTo(R, y + h).lineWidth(0.5).strokeColor(C.line).stroke();
+    doc.y = y + h;
+  });
+  doc.font('R').fontSize(7.5).fillColor(C.ink3).text('Зелёным — лучшее значение среди сравниваемых гипотез.', L, doc.y + 6);
+  doc.y += 14;
+
+  // столбики: затраты / заявки / стоимость заявки
+  const barsBlock = (title, key, fmt) => {
+    ensure(26 + list.length * 18);
+    doc.font('B').fontSize(10).fillColor(C.ink).text(title, L, doc.y + 6);
+    doc.y += 6;
+    const vals = list.map((it) => it.totals[key] || 0);
+    const max = Math.max(...vals, 0) || 1;
+    list.forEach((it, i) => {
+      const yy = doc.y;
+      doc.font('R').fontSize(8).fillColor(C.ink2).text(it.label, L, yy + 2, { width: 150, lineBreak: false, ellipsis: true });
+      const bw = ((CW - 250) * vals[i]) / max;
+      doc.roundedRect(L + 158, yy + 2, CW - 250, 10, 5).fill(C.soft);
+      if (bw > 0) doc.roundedRect(L + 158, yy + 2, Math.max(bw, 4), 10, 5).fill(it.color);
+      doc.font('M').fontSize(8).fillColor(C.ink).text(fmt(it.totals[key]), R - 84, yy + 2, { width: 84, align: 'right', lineBreak: false });
+      doc.y = yy + 18;
+    });
+  };
+  barsBlock('Затраты на лидогенерацию', 'spend', (v) => fmtMoney(v, cur));
+  barsBlock('Заявки', 'leads', fmtInt);
+  barsBlock('Стоимость заявки (меньше — лучше)', 'cpl', (v) => fmtMoney(v, cur));
+
+  // динамика по дням — линии
+  const lineChart = (title, key, fmtAxis) => {
+    ensure(170);
+    doc.font('B').fontSize(10).fillColor(C.ink).text(title, L, doc.y + 10);
+    const top = doc.y + 8;
+    const ch = 110;
+    const days = list[0].daily.map((d) => d.date);
+    const max = Math.max(...list.flatMap((it) => it.daily.map((d) => d[key] || 0)), 0) || 1;
+    const x0 = L + 34;
+    const xw = CW - 34;
+    const xAt = (i) => (days.length === 1 ? x0 + xw / 2 : x0 + (xw * i) / (days.length - 1));
+    for (let g = 0; g <= 2; g++) {
+      const gy = top + ch - (ch * g) / 2;
+      doc.moveTo(x0, gy).lineTo(R, gy).lineWidth(0.5).strokeColor(C.line).stroke();
+      doc.font('R').fontSize(6.5).fillColor(C.ink3).text(fmtAxis((max * g) / 2), L - 4, gy - 4, { width: 34, align: 'right' });
+    }
+    list.forEach((it) => {
+      it.daily.forEach((d, i) => {
+        const px = xAt(i);
+        const py = top + ch - ((d[key] || 0) / max) * ch;
+        if (i === 0) doc.moveTo(px, py); else doc.lineTo(px, py);
+      });
+      doc.lineWidth(1.6).strokeColor(it.color).lineJoin('round').stroke();
+    });
+    const step = Math.ceil(days.length / 7);
+    days.forEach((d, i) => { if (i % step === 0 || i === days.length - 1) doc.font('R').fontSize(6.5).fillColor(C.ink3).text(fmtDate(d).slice(0, 5), xAt(i) - 15, top + ch + 4, { width: 30, align: 'center' }); });
+    // легенда
+    let lx = L;
+    let ly = top + ch + 18;
+    list.forEach((it) => {
+      const w = Math.min(doc.font('R').fontSize(7.5).widthOfString(it.label) + 22, CW);
+      if (lx + w > R) { lx = L; ly += 12; }
+      doc.roundedRect(lx, ly + 1, 8, 8, 2).fill(it.color);
+      doc.fillColor(C.ink2).text(it.label, lx + 12, ly, { lineBreak: false });
+      lx += w + 8;
+    });
+    doc.y = ly + 16;
+  };
+  const short = (v) => (v >= 1000 ? `${Math.round(v / 100) / 10}к` : `${Math.round(v * 10) / 10}`);
+  lineChart('Заявки по дням', 'leads', short);
+  lineChart(`Затраты по дням, ${SYM[cur] || '₽'}`, 'spend', short);
+
+  ensure(40);
+  doc.font('R').fontSize(7.5).fillColor(C.ink3).text(['Стоимость заявки = затраты / заявки; конверсия в заявку = заявки / переходы в форму.', note].filter(Boolean).join(' '), L, doc.y + 6, { width: CW });
+
+  const range = doc.bufferedPageRange();
+  const made = new Date().toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' });
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    doc.page.margins.bottom = 0;
+    const fy = doc.page.height - 36;
+    doc.moveTo(L, fy - 8).lineTo(R, fy - 8).lineWidth(0.5).strokeColor(C.line).stroke();
+    doc.font('R').fontSize(7.5).fillColor(C.ink3)
+      .text(`КонтентФерма · сравнение сформировано ${made}`, L, fy, { width: CW / 2, lineBreak: false })
+      .text(`${i - range.start + 1} / ${range.count}`, L + CW / 2, fy, { width: CW / 2, align: 'right', lineBreak: false });
+  }
+  doc.end();
+  return doc;
+}
+
+async function sendCompare(res, project, q) {
+  const doc = await buildCompare(project, q);
+  const slug = (x) => translit(x).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  const name = `Hypotheses-${slug(project.name)}_${q.from}_${q.to}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  doc.pipe(res);
+}
+
+module.exports = { build, send, buildCompare, sendCompare, addDays };

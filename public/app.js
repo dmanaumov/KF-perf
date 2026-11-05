@@ -516,25 +516,93 @@
     const hasAd = s.byCampaign.some((c) => c.ad_name);
     let filter = '';
     let sort = 'spend';
+    // выбор гипотез для сравнения (ключ platform::campaign_id), переживает сортировку/фильтр
+    const sel = cmpSel[p.id] || (cmpSel[p.id] = new Set());
+    const keyOf = (c) => `${c.platform}::${c.campaign_id}`;
+    const MAXC = Charts.SERIES.length;
+    const bar = () => {
+      $('#cmpbar').innerHTML = `<span class="faint">Сравнение гипотез: отметьте 2–${MAXC} строки</span>
+        <span class="chip ${sel.size >= 2 ? 'accent' : ''}">выбрано ${sel.size}</span>
+        ${sel.size ? '<button class="btn ghost sm" id="cmpclr">Сбросить</button>' : ''}
+        <button class="btn primary sm" id="cmpgo" ${sel.size >= 2 ? '' : 'disabled'}>⇄ Сравнить</button>`;
+      $('#cmpgo').onclick = () => compareModal(p, [...sel].map((k) => { const i = k.indexOf('::'); return [k.slice(0, i), k.slice(i + 2)]; }));
+      if ($('#cmpclr')) $('#cmpclr').onclick = () => { sel.clear(); draw(); };
+    };
     const draw = () => {
       const rows = s.byCampaign.filter((c) => !filter || c.platform === filter).sort((a, b) => (b[sort] ?? -1) - (a[sort] ?? -1));
       const tot = rows.reduce((o, r) => { ['impressions', 'clicks', 'spend', 'leads', 'revenue'].forEach((k) => { o[k] += r[k]; }); return o; }, { impressions: 0, clicks: 0, spend: 0, leads: 0, revenue: 0 });
-      $('#ctab').innerHTML = `<table class="t"><thead><tr><th>Канал</th><th>Кампания</th>${hasAd ? '<th>Компания</th>' : ''}
+      $('#ctab').innerHTML = `<table class="t"><thead><tr><th style="width:30px"></th><th>Канал</th><th>Кампания</th>${hasAd ? '<th>Компания</th>' : ''}
         ${[['impressions', 'Показы'], ['clicks', 'Клики'], ['ctr', 'CTR'], ['spend', 'Расход'], ['leads', 'Лиды'], ['cpl', 'CPL'], ['cr', 'CR']].map(([k, l]) => `<th class="r" style="cursor:pointer" data-s="${k}">${l}${sort === k ? ' ↓' : ''}</th>`).join('')}</tr></thead><tbody>
-        ${rows.map((c) => `<tr><td>${pchip(c.platform)}</td><td class="strong">${esc(c.campaign_name || c.campaign_id || '—')}</td>${hasAd ? `<td>${esc(c.ad_name || '')}</td>` : ''}<td class="r">${F.int(c.impressions)}</td><td class="r">${F.int(c.clicks)}</td><td class="r">${F.pct(c.ctr, 2)}</td><td class="r strong">${F.money(c.spend)}</td><td class="r strong">${F.int(c.leads)}</td><td class="r">${F.money(c.cpl)}</td><td class="r">${F.pct(c.cr, 1)}</td></tr>`).join('') || '<tr><td colspan="${hasAd ? 10 : 9}"><div class="empty">Нет данных за период</div></td></tr>'}
-        </tbody>${rows.length ? `<tfoot><tr><td colspan="${hasAd ? 3 : 2}">Итого</td><td class="r">${F.int(tot.impressions)}</td><td class="r">${F.int(tot.clicks)}</td><td class="r">${F.pct(tot.clicks / tot.impressions * 100, 2)}</td><td class="r">${F.money(tot.spend)}</td><td class="r">${F.int(tot.leads)}</td><td class="r">${F.money(tot.leads ? tot.spend / tot.leads : null)}</td><td class="r">${F.pct(tot.leads / tot.clicks * 100, 1)}</td></tr></tfoot>` : ''}</table>`;
+        ${rows.map((c) => `<tr class="${sel.has(keyOf(c)) ? 'cmp-on' : ''}"><td><input type="checkbox" class="cmp-ck" data-k="${esc(keyOf(c))}" ${sel.has(keyOf(c)) ? 'checked' : ''} ${!sel.has(keyOf(c)) && sel.size >= MAXC ? 'disabled' : ''}></td><td>${pchip(c.platform)}</td><td class="strong">${esc(c.campaign_name || c.campaign_id || '—')}</td>${hasAd ? `<td>${esc(c.ad_name || '')}</td>` : ''}<td class="r">${F.int(c.impressions)}</td><td class="r">${F.int(c.clicks)}</td><td class="r">${F.pct(c.ctr, 2)}</td><td class="r strong">${F.money(c.spend)}</td><td class="r strong">${F.int(c.leads)}</td><td class="r">${F.money(c.cpl)}</td><td class="r">${F.pct(c.cr, 1)}</td></tr>`).join('') || '<tr><td colspan="${hasAd ? 11 : 10}"><div class="empty">Нет данных за период</div></td></tr>'}
+        </tbody>${rows.length ? `<tfoot><tr><td colspan="${hasAd ? 4 : 3}">Итого</td><td class="r">${F.int(tot.impressions)}</td><td class="r">${F.int(tot.clicks)}</td><td class="r">${F.pct(tot.clicks / tot.impressions * 100, 2)}</td><td class="r">${F.money(tot.spend)}</td><td class="r">${F.int(tot.leads)}</td><td class="r">${F.money(tot.leads ? tot.spend / tot.leads : null)}</td><td class="r">${F.pct(tot.leads / tot.clicks * 100, 1)}</td></tr></tfoot>` : ''}</table>`;
       $$('#ctab th[data-s]').forEach((th) => { th.onclick = () => { sort = th.dataset.s; draw(); }; });
+      $$('#ctab .cmp-ck').forEach((ck) => { ck.onchange = () => { if (ck.checked) sel.add(ck.dataset.k); else sel.delete(ck.dataset.k); draw(); }; });
+      bar();
     };
     const pls = [...new Set(s.byCampaign.map((c) => c.platform))];
     body.innerHTML = `<div class="row between" style="margin-bottom:16px">${periodSeg()}
         <select class="inp" id="cpf" style="width:auto">${opt('', 'Все каналы', '')}${pls.map((x) => opt(x, plat(x).label, '')).join('')}</select></div>
       ${adSeg(s, p)}
-      <div class="card"><div class="table-wrap" id="ctab"></div></div>`;
+      <div class="card"><div class="row cmp-bar" id="cmpbar"></div><div class="table-wrap" id="ctab"></div></div>`;
     bindPeriod(body, () => tabCampaigns(body, p));
     bindAd(body, p, () => tabCampaigns(body, p));
     $('#cpf').onchange = (e) => { filter = e.target.value; draw(); };
     draw();
   }
+
+  // ---------- сравнение гипотез ----------
+  const cmpSel = {};
+  async function compareModal(p, items) {
+    const [from, to] = periodRange();
+    const qs = `from=${from}&to=${to}&items=${encodeURIComponent(JSON.stringify(items))}`;
+    let d;
+    try { d = await get(`/projects/${p.id}/compare?${qs}`); } catch (e) { fail(e); return; }
+    const list = d.items.map((x, i) => ({ ...x, color: Charts.SERIES[i % Charts.SERIES.length], label: x.ad_name ? `${x.name} · ${x.ad_name}` : x.name }));
+    const T = (x) => x.totals;
+    const best = {
+      leads: Math.max(...list.map((x) => T(x).leads)),
+      cpl: Math.min(...list.map((x) => T(x).cpl).filter((v) => v !== null && isFinite(v))),
+      cr: Math.max(...list.map((x) => T(x).cr || 0)),
+    };
+    const td = (cond) => (cond ? '<td class="r cmp-best">' : '<td class="r">');
+    const sw = (c) => `<span class="cmp-sw" style="background:${c}"></span>`;
+    modal('Сравнение гипотез', `
+      <div class="row between" style="margin:-6px 0 14px"><span class="faint">${F.date(d.from)} — ${F.date(d.to)} · гипотез: ${list.length}</span>
+        <a class="btn primary sm" id="cmppdf" href="/api/projects/${p.id}/compare.pdf?${qs}" download>⬇ Сохранить в PDF</a></div>
+      <div class="table-wrap"><table class="t"><thead><tr><th>Гипотеза</th><th class="r">Расход</th><th class="r">Лиды</th><th class="r">CPL</th><th class="r">Клики</th><th class="r">CR</th></tr></thead><tbody>
+        ${list.map((x) => `<tr><td class="strong">${sw(x.color)}${esc(x.label)} <span class="faint" style="font-weight:500;font-size:12px">${esc(plat(x.platform).short)}</span></td>
+          <td class="r">${F.money(T(x).spend)}</td>${td(T(x).leads === best.leads && T(x).leads > 0)}${F.int(T(x).leads)}</td>
+          ${td(T(x).cpl === best.cpl)}${F.money(T(x).cpl)}</td><td class="r">${F.int(T(x).clicks)}</td>${td(T(x).cr === best.cr && T(x).cr > 0)}${F.pct(T(x).cr, 1)}</td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="faint" style="font-size:12px;margin:6px 0 0">Зелёным — лучшее значение среди выбранных.</p>
+      <div class="grid g-3 mt">
+        <div><div class="chart-title">Сумма расхода</div><div id="cb-spend"></div></div>
+        <div><div class="chart-title">Количество лидов</div><div id="cb-leads"></div></div>
+        <div><div class="chart-title">CPL (меньше — лучше)</div><div id="cb-cpl"></div></div>
+      </div>
+      <div class="row between mt"><div class="chart-title" style="margin:0">Динамика по дням</div>
+        <div class="seg" id="cmpm"><button data-m="leads" class="active">Лиды</button><button data-m="spend">Расход</button><button data-m="cpl">CPL</button></div></div>
+      <div class="chart" id="cmpchart" style="margin-top:8px"></div>
+      <div class="legend">${list.map((x) => `<span><i style="background:${x.color}"></i>${esc(x.label)}</span>`).join('')}</div>`, {
+      wide: true,
+      onMount: (el) => {
+        el.querySelector('.modal').classList.add('xwide');
+        const hb = (id, key, fmt) => Charts.hbars($(id, el), list.map((x) => ({ label: x.label, value: T(x)[key] || 0, valueText: fmt(T(x)[key]), color: x.color })));
+        hb('#cb-spend', 'spend', F.money);
+        hb('#cb-leads', 'leads', F.int);
+        hb('#cb-cpl', 'cpl', F.money);
+        const drawLine = (m) => Charts.multiLine($('#cmpchart', el), list.map((x) => ({
+          name: x.label,
+          color: x.color,
+          points: x.daily.map((dd) => ({ x: dd.date, y: m === 'cpl' ? (dd.leads ? dd.spend / dd.leads : null) : dd[m] })),
+        })), { height: 240, axisFmt: m === 'leads' ? F.int : F.moneyShort, fmt: m === 'leads' ? F.int : F.money });
+        drawLine('leads');
+        $$('#cmpm button', el).forEach((b) => { b.onclick = () => { $$('#cmpm button', el).forEach((x) => x.classList.toggle('active', x === b)); drawLine(b.dataset.m); }; });
+        $('#cmppdf', el).onclick = () => toast('Готовлю PDF…');
+      },
+    });
+  }
+
 
   // ---------- tasks ----------
   function taskForm(t = {}, { projectSelect } = {}) {

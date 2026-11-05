@@ -234,5 +234,41 @@
       </div>`).join('')}</div>`;
   }
 
-  window.KF = { F, esc, Charts: { bars, line, spark, hbars } };
+  // Палитра для сравнения серий: проверенный на различимость (в т.ч. при дальтонизме) порядок цветов.
+  // Цвет закреплён за серией по её позиции в выборке и не «переезжает» при фильтрах.
+  const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
+
+  // Несколько линий по дням. series: [{ name, color, points: [{x, y}] }] (x — одинаковые даты у всех)
+  function multiLine(el, series, opts = {}) {
+    mount(el, () => {
+      const f = frame(el, opts);
+      const xs = (series[0] && series[0].points) || [];
+      const vals = series.flatMap((sr) => sr.points.map((p) => p.y)).filter((v) => v !== null && v !== undefined && isFinite(v));
+      const max = niceMax(Math.max(...vals, 0) * 1.1);
+      const xOf = (i) => (xs.length === 1 ? f.m.l + f.iw / 2 : f.m.l + f.iw * i / (xs.length - 1));
+      const yOf = (v) => f.m.t + f.ih - (v / max) * f.ih;
+      let s = `<svg viewBox="0 0 ${f.W} ${f.H}" role="img" aria-label="${esc(opts.label || '')}">`;
+      s += axisY(f, max, opts.axisFmt || F.int);
+      series.forEach((sr) => {
+        let d = '';
+        let pen = false;
+        sr.points.forEach((pt, i) => {
+          if (pt.y === null || pt.y === undefined || !isFinite(pt.y)) { pen = false; return; }
+          d += `${pen ? 'L' : 'M'}${xOf(i).toFixed(1)},${yOf(pt.y).toFixed(1)} `;
+          pen = true;
+        });
+        s += `<path d="${d}" fill="none" stroke="${sr.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+        if (xs.length <= 20) sr.points.forEach((pt, i) => { if (pt.y !== null && pt.y !== undefined && isFinite(pt.y)) s += `<circle cx="${xOf(i)}" cy="${yOf(pt.y)}" r="3" fill="${sr.color}" stroke="var(--surface)" stroke-width="1.5"/>`; });
+      });
+      s += axisX(f, xs, xOf, (d) => F.dateShort(d.x));
+      s += `<line class="hl" y1="${f.m.t}" y2="${f.m.t + f.ih}" style="display:none"/>`;
+      s += `<rect class="hit" x="${f.m.l - 6}" y="${f.m.t}" width="${f.iw + 12}" height="${f.ih}"/></svg>`;
+      el.insertAdjacentHTML('beforeend', s);
+      const fmt = opts.fmt || F.int;
+      attachHover(el, el.querySelector('svg'), f, xs, xOf, (d, i) => `${F.date(d.x)}<br>${series.map((sr) =>
+        `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${sr.color};margin-right:5px"></span>${esc(sr.name)}: <b>${fmt(sr.points[i].y)}</b>`).join('<br>')}`);
+    });
+  }
+
+  window.KF = { F, esc, Charts: { bars, line, spark, hbars, multiLine, SERIES } };
 })();

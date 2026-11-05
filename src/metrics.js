@@ -82,6 +82,33 @@ async function projectSummary(projectId, from, to, { campaigns = true, ad = '' }
   };
 }
 
+// Сравнение гипотез: несколько строк «Кампании» (platform + campaign_id) за период —
+// итоги каждой и ряды по дням. items: [{ platform, campaign_id }]
+async function compareItems(projectId, from, to, items) {
+  const out = [];
+  for (const it of items) {
+    const args = [projectId, from, to, it.platform, it.campaign_id];
+    const where = 'project_id=$1 AND date BETWEEN $2 AND $3 AND platform=$4 AND campaign_id=$5';
+    const [tot, daily] = await Promise.all([
+      db.one(`SELECT max(campaign_name) AS campaign_name, max(ad_name) AS ad_name, ${SUMS} FROM stats_daily WHERE ${where}`, args),
+      db.all(`SELECT date, ${SUMS} FROM stats_daily WHERE ${where} GROUP BY date`, args),
+    ]);
+    const map = new Map(daily.map((d) => [d.date, d]));
+    const series = [];
+    for (let d = from; d <= to; d = addDays(d, 1)) series.push(map.get(d) || { date: d, impressions: 0, clicks: 0, spend: 0, leads: 0, revenue: 0 });
+    out.push({
+      key: `${it.platform}::${it.campaign_id}`,
+      platform: it.platform,
+      campaign_id: it.campaign_id,
+      name: tot.campaign_name || it.campaign_id || '—',
+      ad_name: tot.ad_name || null,
+      totals: derive(tot),
+      daily: series,
+    });
+  }
+  return { from, to, items: out };
+}
+
 // План/факт текущего месяца + пейсинг (прогноз расхода на конец месяца по темпу)
 async function pacing(projectId, day = today()) {
   const ms = monthStart(day);
@@ -223,4 +250,4 @@ async function alerts(project, pace) {
   return out;
 }
 
-module.exports = { projectSummary, pacing, seoSummary, geoSummary, alerts, totals, derive };
+module.exports = { compareItems, projectSummary, pacing, seoSummary, geoSummary, alerts, totals, derive };

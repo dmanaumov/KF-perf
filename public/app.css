@@ -408,3 +408,12 @@ textarea.inp.sheet-urls { min-height: 42px; resize: vertical; font-size: 13px; }
 .ad-arr:hover { border-color: var(--accent); color: var(--accent); }
 .ad-arr.off { opacity: .3; pointer-events: none; }
 .cur-pick { border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; color: var(--ink-2); cursor: pointer; }
+
+/* ---------- сравнение гипотез ---------- */
+.cmp-bar { gap: 10px; padding: 0 0 12px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.cmp-bar .btn.primary { margin-left: auto; }
+.cmp-ck { width: 16px; height: 16px; accent-color: var(--kf-green); cursor: pointer; }
+.t tr.cmp-on td { background: var(--accent-soft); }
+.cmp-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: 0; }
+.t td.cmp-best { color: var(--good); font-weight: 800; }
+.modal.xwide { width: min(1080px, 100%); }

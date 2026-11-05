@@ -237,6 +237,30 @@ r.get(`${P}/summary`, loadProject, wrap(async (req, res) => {
   res.json({ ...summary, pacing: pace, alerts: await metrics.alerts(req.project, pace) });
 }));
 
+// Сравнение гипотез (строк «Кампаний»): ?from&to&items=[["platform","campaign_id"], …] — от 2 до 8
+function compareParams(req) {
+  const to = isDate(req.query.to) ? req.query.to : today();
+  const from = isDate(req.query.from) ? req.query.from : monthStart(to);
+  let items = [];
+  try { items = JSON.parse(String(req.query.items || '[]')); } catch (e) { items = []; }
+  if (!Array.isArray(items)) items = [];
+  items = items.filter((x) => Array.isArray(x) && x.length === 2).map(([platform, campaign_id]) => ({ platform: String(platform), campaign_id: String(campaign_id) }));
+  if (from > to) return { error: 'Неверный период' };
+  if (items.length < 2) return { error: 'Выберите хотя бы две гипотезы' };
+  if (items.length > 8) return { error: 'Можно сравнить не больше 8 гипотез' };
+  return { from, to, items };
+}
+r.get(`${P}/compare`, loadProject, wrap(async (req, res) => {
+  const q = compareParams(req);
+  if (q.error) return bad(res, q.error);
+  res.json(await metrics.compareItems(req.project.id, q.from, q.to, q.items));
+}));
+r.get(`${P}/compare.pdf`, loadProject, wrap(async (req, res) => {
+  const q = compareParams(req);
+  if (q.error) return bad(res, q.error);
+  await require('../report').sendCompare(res, req.project, q);
+}));
+
 // PDF «Отчёт об эффективности лидогенерации» — тот же период и фильтр компании, что на «Сводке»
 r.get(`${P}/report.pdf`, loadProject, wrap(async (req, res) => {
   const to = isDate(req.query.to) ? req.query.to : today();
