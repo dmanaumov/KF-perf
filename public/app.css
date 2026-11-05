@@ -388,3 +388,12 @@ textarea.secrets-text { min-height: 340px; font-family: ui-monospace, SFMono-Reg
 .sheet-title { align-self: center; }
 #sheets-form details.guide { margin-top: 12px; }
 @media (max-width: 860px) { .sheet-row { grid-template-columns: 1fr; } .sheet-row .sheet-status { grid-column: auto; } }
+
+/* ---------- раскладка по объявлениям ---------- */
+.ad-seg .seg { max-width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+.ad-seg .seg button { white-space: nowrap; }
+.t tr.ad-total td { background: var(--surface-2); font-weight: 700; }
+.t tr.ad-active td { background: var(--accent-soft); }
+.t tr.ad-active td:first-child { box-shadow: inset 3px 0 0 var(--kf-coral); }
+
+textarea.inp.sheet-urls { min-height: 42px; resize: vertical; font-size: 13px; }

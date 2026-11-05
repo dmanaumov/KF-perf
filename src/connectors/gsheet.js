@@ -73,8 +73,13 @@ function parseCsvTable(text) {
   return rows.map((r) => r.map((c) => c.trim())).filter((r) => r.some(Boolean));
 }
 
+const TZ = process.env.TZ_REPORTS || 'Europe/Moscow';
 function parseDate(v) {
   const s = String(v || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:?\d{2})$/.test(s)) {
+    const t = new Date(s);
+    if (!isNaN(t)) return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(t);
+  }
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
   m = /^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/.exec(s);
@@ -106,13 +111,16 @@ function parseNumber(v) {
 
 // ---------- заголовки ----------
 const ALIASES = {
-  date: ['дата', 'день', 'date', 'дата заявки', 'дата лида', 'дата создания', 'создано', 'создан', 'created', 'created_at', 'day'],
-  channel: ['канал', 'источник', 'площадка', 'source', 'utm_source', 'канал привлечения', 'рекламный канал', 'откуда', 'channel', 'платформа'],
-  campaign: ['кампания', 'campaign', 'utm_campaign', 'название кампании', 'рк', 'объявление'],
-  spend: ['расход', 'расходы', 'затраты', 'spend', 'cost', 'потрачено', 'сумма расхода', 'расход руб', 'бюджет'],
-  leads: ['лиды', 'лидов', 'заявки', 'заявок', 'leads', 'кол-во лидов', 'количество лидов', 'количество', 'конверсии', 'обращения'],
-  impressions: ['показы', 'impressions', 'просмотры', 'охват'],
-  clicks: ['клики', 'clicks', 'переходы'],
+  // created_time/campaign_name/platform — выгрузка лид-форм Meta; Day/Amount Spent/Results — отчёт Ads Manager
+  date: ['дата', 'день', 'date', 'дата заявки', 'дата лида', 'дата создания', 'создано', 'создан', 'created_time', 'created', 'created_at', 'day', 'reporting starts', 'начало отчетности'],
+  channel: ['канал', 'источник', 'площадка', 'source', 'utm_source', 'канал привлечения', 'рекламный канал', 'откуда', 'channel', 'платформа', 'platform'],
+  campaign: ['кампания', 'campaign_name', 'campaign name', 'название кампании', 'campaign', 'utm_campaign', 'рк'],
+  // ad_name — название объявления (у Meta так называют продукт/креатив): раскладка «по объявлениям»
+  ad: ['ad_name', 'ad name', 'название объявления', 'объявление'],
+  spend: ['расход', 'расходы', 'затраты', 'spend', 'amount spent', 'потраченная сумма', 'cost', 'потрачено', 'сумма расхода', 'расход руб', 'бюджет'],
+  leads: ['лиды', 'лидов', 'заявки', 'заявок', 'leads', 'results', 'результаты', 'кол-во лидов', 'количество лидов', 'количество', 'конверсии', 'обращения'],
+  impressions: ['показы', 'impressions', 'просмотры'],
+  clicks: ['клики', 'clicks', 'link clicks', 'клики по ссылке', 'переходы'],
   revenue: ['выручка', 'доход', 'revenue', 'сумма сделки', 'сумма продажи', 'сумма'],
   status: ['статус', 'status', 'качество', 'квалификация', 'стадия'],
 };
@@ -129,9 +137,11 @@ function mapHeader(head) {
       if (i >= 0) { col[field] = i; used.add(i); }
     }
   };
+  // ID-колонки (campaign_id, ad_id…) и «стоимость за …» в нестрогих проходах не берём
+  const loose = (x) => !/(^|[ _])id$/.test(x) && !/^(cost per|cpc|cpm|ctr|стоимость за|цена за)/.test(x);
   pass((x, a) => x === a);
-  pass((x, a) => x.startsWith(a + ' ') || x.startsWith(a));
-  pass((x, a) => a.length >= 4 && x.includes(a));
+  pass((x, a) => loose(x) && (x.startsWith(a + ' ') || x.startsWith(a)));
+  pass((x, a) => loose(x) && a.length >= 4 && x.includes(a));
   return col;
 }
 
@@ -160,6 +170,11 @@ const JUNK = /спам|spam|дубл|duplicate|тест|test|нецелев|не
 // Разбор таблицы → строки stats_daily (с полем platform у каждой строки)
 function toRows(text, settings = {}) {
   const role = settings.role === 'spend' ? 'spend' : 'leads';
+  // Курс: таблица в другой валюте (отчёт Meta в $) → умножаем расход и выручку
+  const rate = parseNumber(settings.rate) > 0 ? parseNumber(settings.rate) : 1;
+  // НДС сверху на расход (Meta выставляет без НДС, а платим с НДС): 20 → ×1,2
+  const vat = parseNumber(settings.vat) > 0 ? parseNumber(settings.vat) : 0;
+  const spendK = rate * (1 + vat / 100);
   const fallback = settings.default_platform || 'other';
   const table = parseCsvTable(text);
   if (!table.length) throw new Error('Таблица пустая');
@@ -180,11 +195,13 @@ function toRows(text, settings = {}) {
     const date = parseDate(r[col.date]);
     if (!date) { stat.badDate++; continue; }
     if (col.status !== undefined && JUNK.test(r[col.status] || '')) { stat.junk++; continue; }
+    if (r.some((c) => /^(тест|test|тестовый лид|test lead)$/i.test(c))) { stat.junk++; continue; }
     const chText = col.channel !== undefined ? r[col.channel] : '';
     const mapped = channelToPlatform(chText);
     if (chText && !mapped) stat.unknownChannels.add(chText);
     const platform = mapped || fallback;
     const campaign = (col.campaign !== undefined && r[col.campaign]) || (!mapped && chText) || '';
+    const ad = (col.ad !== undefined && String(r[col.ad] || '').trim()) || '';
     // Роль решает, какие цифры берём: таблица лидов → лиды и выручка, таблица
     // расходов → расход, показы, клики. Поэтому одну и ту же таблицу можно
     // указать в обеих ролях — ничего не задвоится.
@@ -192,13 +209,14 @@ function toRows(text, settings = {}) {
     const isLeads = role === 'leads';
     const row = {
       date, platform,
-      campaign_id: campaign.toLowerCase().slice(0, 200),
+      campaign_id: `${campaign}${ad ? `||${ad}` : ''}`.toLowerCase().slice(0, 240),
       campaign_name: campaign || chText || null,
+      ad_name: ad || null,
       impressions: isLeads ? 0 : num('impressions'),
       clicks: isLeads ? 0 : num('clicks'),
-      spend: isLeads ? 0 : num('spend'),
+      spend: isLeads ? 0 : num('spend') * spendK,
       leads: isLeads ? (col.leads !== undefined ? num('leads') : 1) : 0,
-      revenue: isLeads ? num('revenue') : 0,
+      revenue: isLeads ? num('revenue') * rate : 0,
     };
     const k = `${date}|${platform}|${row.campaign_id}`;
     const prev = merged.get(k);
@@ -211,24 +229,72 @@ function toRows(text, settings = {}) {
   return rows;
 }
 
+// Ссылки: по одной в строке (разные листы / разные таблицы). Галочка «все листы» —
+// берём каждую вкладку таблицы (список вкладок — со страницы htmlview).
+function urlList(raw) {
+  return String(raw || '').split(/[\n\s]+/).map((x) => x.trim()).filter(Boolean);
+}
+
+async function sheetGids(url) {
+  const id = (String(url).match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]{20,})/) || [])[1];
+  if (!id) return [url];
+  const res = await request(`https://docs.google.com/spreadsheets/d/${id}/htmlview`, { redirect: 'follow' });
+  const html = await res.text();
+  const gids = [...new Set([...html.matchAll(/gid[=:]\s*"?(\d+)/g)].map((m) => m[1]))];
+  if (!res.ok || !gids.length) return [url];
+  return gids.map((g) => `https://docs.google.com/spreadsheets/d/${id}/edit#gid=${g}`);
+}
+
 async function fetchStats(cred, settings) {
-  return toRows(await download(settings.url), settings);
+  let urls = urlList(settings.url);
+  if (!urls.length) throw new Error('Не указана ссылка на таблицу');
+  if (String(settings.all_sheets) === 'true') urls = (await Promise.all(urls.map(sheetGids))).flat();
+  urls = [...new Set(urls.map(csvUrl))];
+  const all = [];
+  const meta = { read: 0, used: 0, badDate: 0, junk: 0, unknownChannels: [], columns: [], sheets: 0, errors: [] };
+  for (const u of urls) {
+    try {
+      const rows = toRows(await download(u), settings);
+      all.push(...rows);
+      ['read', 'used', 'badDate', 'junk'].forEach((k) => { meta[k] += rows.meta[k]; });
+      meta.unknownChannels = [...new Set([...meta.unknownChannels, ...rows.meta.unknownChannels])].slice(0, 10);
+      meta.columns = [...new Set([...meta.columns, ...rows.meta.columns])];
+      meta.sheets++;
+    } catch (err) {
+      // с несколькими листами пустой/служебный лист не валит всю загрузку
+      if (urls.length === 1) throw err;
+      meta.errors.push(err.message);
+    }
+  }
+  if (!meta.sheets) throw new Error(meta.errors[0] || 'Ни один лист не прочитан');
+  // одинаковые (дата, канал, кампания) с разных листов — суммируем
+  const merged = new Map();
+  for (const r of all) {
+    const k = `${r.date}|${r.campaign_id}`;
+    const p = merged.get(k);
+    if (p) ['impressions', 'clicks', 'spend', 'leads', 'revenue'].forEach((f) => { p[f] += r[f]; });
+    else merged.set(k, { ...r });
+  }
+  const out = [...merged.values()];
+  out.meta = meta;
+  return out;
 }
 
 async function test(cred, settings) {
   const rows = await fetchStats(cred, settings);
   const m = rows.meta;
   const sum = (f) => Math.round(rows.reduce((s, r) => s + r[f], 0));
-  const parts = [`строк ${m.used} из ${m.read}`, `колонки: ${m.columns.join(', ')}`];
-  if (settings.role === 'spend') parts.push(`расход ${sum('spend').toLocaleString('ru')} ₽`);
+  const parts = [`листов ${m.sheets}`, `строк ${m.used} из ${m.read}`, `колонки: ${m.columns.join(', ')}`];
+  if (settings.role === 'spend') parts.push(`расход ${sum('spend').toLocaleString('ru')}`);
   else parts.push(`лидов ${sum('leads')}`);
   if (m.badDate) parts.push(`без даты: ${m.badDate}`);
   if (m.junk) parts.push(`спам/дубли: ${m.junk}`);
+  if (m.errors.length) parts.push(`пропущены листы: ${m.errors.join('; ')}`);
   if (m.unknownChannels.length) parts.push(`каналы без сопоставления → «по умолчанию»: ${m.unknownChannels.join(', ')}`);
   return parts.join(' · ');
 }
 
 module.exports = {
   platform: 'gsheet', fields, settingsFields, fetchStats, test,
-  noCreds: true, replace: true, csvUrl, toRows, channelToPlatform, parseDate,
+  noCreds: true, replace: true, csvUrl, urlList, toRows, channelToPlatform, parseDate,
 };

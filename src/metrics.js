@@ -19,23 +19,45 @@ function derive(t) {
 const SUMS = `COALESCE(sum(impressions),0)::float AS impressions, COALESCE(sum(clicks),0)::float AS clicks,
   COALESCE(sum(spend),0)::float AS spend, COALESCE(sum(leads),0)::float AS leads, COALESCE(sum(revenue),0)::float AS revenue`;
 
-async function totals(projectId, from, to) {
-  return derive(await db.one(`SELECT ${SUMS} FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform = ANY($4)`, [projectId, from, to, AD_PLATFORMS]));
+// ad — фильтр по названию объявления (ad_name). '' / undefined — все.
+const adCond = (ad, i) => (ad ? ` AND ad_name = $${i}` : '');
+const adArg = (ad) => (ad ? [ad] : []);
+
+async function totals(projectId, from, to, ad) {
+  return derive(await db.one(`SELECT ${SUMS} FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform = ANY($4)${adCond(ad, 5)}`, [projectId, from, to, AD_PLATFORMS, ...adArg(ad)]));
 }
 
-async function projectSummary(projectId, from, to, { campaigns = true } = {}) {
+// Раскладка по объявлениям за период: строка на каждое ad_name. Строки без
+// названия объявления (кабинеты, таблицы без колонки ad_name) — одной строкой «без объявления».
+async function byAd(projectId, from, to) {
+  const rows = await db.all(
+    `SELECT ad_name, ${SUMS} FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform = ANY($4)
+     GROUP BY ad_name ORDER BY (ad_name IS NULL), sum(spend) DESC, sum(leads) DESC`, [projectId, from, to, AD_PLATFORMS]);
+  if (!rows.some((r) => r.ad_name)) return [];
+  return rows.map((r) => derive(r));
+}
+
+async function adNames(projectId) {
+  return (await db.all(`SELECT DISTINCT ad_name FROM stats_daily WHERE project_id=$1 AND ad_name IS NOT NULL ORDER BY ad_name`, [projectId])).map((r) => r.ad_name);
+}
+
+async function projectSummary(projectId, from, to, { campaigns = true, ad = '' } = {}) {
   const len = diffDays(from, to) + 1;
   const prevTo = addDays(from, -1);
   const prevFrom = addDays(prevTo, -(len - 1));
-  const [cur, prev, daily, byPlatform, byCampaign, analytics] = await Promise.all([
-    totals(projectId, from, to),
-    totals(projectId, prevFrom, prevTo),
-    db.all(`SELECT date, ${SUMS} FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform = ANY($4) GROUP BY date ORDER BY date`, [projectId, from, to, AD_PLATFORMS]),
-    db.all(`SELECT platform, ${SUMS} FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform = ANY($4) GROUP BY platform ORDER BY sum(spend) DESC`, [projectId, from, to, AD_PLATFORMS]),
+  const A = adCond(ad, 5);
+  const args = [projectId, from, to, AD_PLATFORMS, ...adArg(ad)];
+  const [cur, prev, daily, byPlatform, byCampaign, analytics, ads, adList] = await Promise.all([
+    totals(projectId, from, to, ad),
+    totals(projectId, prevFrom, prevTo, ad),
+    db.all(`SELECT date, ${SUMS} FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform = ANY($4)${A} GROUP BY date ORDER BY date`, args),
+    db.all(`SELECT platform, ${SUMS} FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform = ANY($4)${A} GROUP BY platform ORDER BY sum(spend) DESC`, args),
     campaigns
-      ? db.all(`SELECT platform, campaign_id, max(campaign_name) AS campaign_name, ${SUMS} FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform = ANY($4) GROUP BY platform, campaign_id ORDER BY sum(spend) DESC LIMIT 200`, [projectId, from, to, AD_PLATFORMS])
+      ? db.all(`SELECT platform, campaign_id, max(campaign_name) AS campaign_name, max(ad_name) AS ad_name, ${SUMS} FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform = ANY($4)${A} GROUP BY platform, campaign_id ORDER BY sum(spend) DESC LIMIT 300`, args)
       : [],
     db.all(`SELECT campaign_id, max(campaign_name) AS name, COALESCE(sum(clicks),0)::float AS visits, COALESCE(sum(leads),0)::float AS leads FROM stats_daily WHERE project_id=$1 AND date BETWEEN $2 AND $3 AND platform='metrika' GROUP BY campaign_id ORDER BY sum(clicks) DESC`, [projectId, from, to]),
+    byAd(projectId, from, to),
+    adNames(projectId),
   ]);
 
   // заполняем пропущенные дни нулями, чтобы графики не «склеивали» провалы
@@ -45,6 +67,9 @@ async function projectSummary(projectId, from, to, { campaigns = true } = {}) {
 
   return {
     from, to, prevFrom, prevTo,
+    ad: ad || '',
+    adNames: adList,
+    byAd: ads,
     totals: cur,
     prev,
     daily: series,

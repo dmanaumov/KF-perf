@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS stats_daily (
   PRIMARY KEY (integration_id, date, campaign_id)
 );
 CREATE INDEX IF NOT EXISTS stats_daily_project_date ON stats_daily (project_id, date);
+-- Название объявления (ad_name из таблиц/Meta) — раскладка «по объявлениям» на сводке
+ALTER TABLE stats_daily ADD COLUMN IF NOT EXISTS ad_name TEXT;
 
 CREATE TABLE IF NOT EXISTS sync_runs (
   id SERIAL PRIMARY KEY,

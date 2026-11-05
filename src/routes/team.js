@@ -233,7 +233,7 @@ r.get(`${P}/summary`, loadProject, wrap(async (req, res) => {
   const to = isDate(req.query.to) ? req.query.to : today();
   const from = isDate(req.query.from) ? req.query.from : monthStart(to);
   if (from > to) return bad(res, 'Неверный период');
-  const [summary, pace] = await Promise.all([metrics.projectSummary(req.project.id, from, to), metrics.pacing(req.project.id)]);
+  const [summary, pace] = await Promise.all([metrics.projectSummary(req.project.id, from, to, { ad: String(req.query.ad || '').slice(0, 300) }), metrics.pacing(req.project.id)]);
   res.json({ ...summary, pacing: pace, alerts: await metrics.alerts(req.project, pace) });
 }));
 
@@ -377,7 +377,7 @@ async function projectSheets(pid) {
   const out = {};
   for (const role of SHEET_ROLES) {
     const i = list.find((x) => (x.settings || {}).role === role);
-    out[role] = i ? { id: i.id, url: i.settings.url || '', default_platform: i.settings.default_platform || 'other', status: i.status, last_sync_at: i.last_sync_at, last_error: i.last_error, rows: i.rows_count, first_date: i.first_date, last_date: i.last_date } : null;
+    out[role] = i ? { id: i.id, url: i.settings.url || '', default_platform: i.settings.default_platform || 'other', rate: i.settings.rate || '', vat: i.settings.vat || '', all_sheets: String(i.settings.all_sheets) === 'true', status: i.status, last_sync_at: i.last_sync_at, last_error: i.last_error, rows: i.rows_count, first_date: i.first_date, last_date: i.last_date } : null;
   }
   return out;
 }
@@ -390,19 +390,23 @@ r.put(`${P}/sheets`, loadProject, wrap(async (req, res) => {
   const results = {};
   for (const role of SHEET_ROLES) {
     if (!b[role]) continue;
-    const url = String(b[role].url || '').trim();
+    const url = gs.urlList(b[role].url).join('\n');
     const def = BY_ID[b[role].default_platform] && BY_ID[b[role].default_platform].kind === 'ads' ? b[role].default_platform : 'other';
-    if (url) { try { gs.csvUrl(url); } catch (err) { return bad(res, `${role === 'leads' ? 'Таблица лидов' : 'Таблица расходов'}: ${err.message}`); } }
+    if (url) { try { gs.urlList(url).forEach(gs.csvUrl); } catch (err) { return bad(res, `${role === 'leads' ? 'Таблица лидов' : 'Таблица расходов'}: ${err.message}`); } }
     const cur = await db.one("SELECT * FROM integrations WHERE project_id=$1 AND platform='gsheet' AND settings->>'role'=$2", [req.project.id, role]);
     if (!url) {
       if (cur) await db.q('DELETE FROM integrations WHERE id=$1', [cur.id]);
       results[role] = { removed: !!cur };
       continue;
     }
-    const settingsObj = { url, role, default_platform: def };
+    const rate = String(b[role].rate || '').replace(',', '.').trim();
+    if (rate && !(parseFloat(rate) > 0)) return bad(res, 'Курс валюты должен быть положительным числом');
+    const vat = String(b[role].vat || '').replace(',', '.').replace('%', '').trim();
+    if (vat && !(parseFloat(vat) >= 0 && parseFloat(vat) < 100)) return bad(res, 'НДС — число процентов от 0 до 99');
+    const settingsObj = { url, role, default_platform: def, rate: rate || '', vat: vat || '', all_sheets: !!b[role].all_sheets };
     let id;
     if (cur) {
-      await db.q("UPDATE integrations SET settings=$2, enabled=true, status=CASE WHEN settings->>'url' IS DISTINCT FROM $3 THEN 'never' ELSE status END WHERE id=$1", [cur.id, settingsObj, url]);
+      await db.q("UPDATE integrations SET settings=$2, enabled=true, status='never' WHERE id=$1 AND $3::text IS NOT NULL", [cur.id, settingsObj, url]);
       id = cur.id;
     } else {
       id = (await db.one("INSERT INTO integrations (project_id, platform, title, settings, status) VALUES ($1,'gsheet',$2,$3,'never') RETURNING id",

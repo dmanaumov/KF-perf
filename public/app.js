@@ -370,9 +370,33 @@
   function bindPeriod(root, cb) { $$('#perseg button', root).forEach((b) => { b.onclick = () => { period = b.dataset.p; cb(); }; }); }
 
   // KPI-плитки + график — используются и в клиентском кабинете (см. client.js)
+  // Фильтр «Объявление» (ad_name) — один на проект, общий для «Сводки» и «Кампаний»
+  const adFilter = {};
+  const adQ = (p) => (adFilter[p.id] ? `&ad=${encodeURIComponent(adFilter[p.id])}` : '');
+  const adSeg = (s, p) => (s.adNames && s.adNames.length ? `<div class="row ad-seg" style="margin:-4px 0 16px;gap:6px">
+      <span class="faint" style="font-size:12.5px;font-weight:700">Объявление:</span>
+      <div class="seg" id="adseg"><button data-ad="" class="${!s.ad ? 'active' : ''}">Все</button>${s.adNames.map((a) => `<button data-ad="${esc(a)}" class="${s.ad === a ? 'active' : ''}">${esc(a)}</button>`).join('')}</div>
+    </div>` : '');
+  const bindAd = (root, p, again) => { $$('#adseg button, [data-adrow]', root).forEach((b) => { b.onclick = () => { adFilter[p.id] = b.dataset.ad ?? b.dataset.adrow; again(); }; }); };
+
+  function adTable(s, sales) {
+    if (!s.byAd || !s.byAd.length) return '';
+    const sum = s.byAd.reduce((o, r) => { ['impressions', 'clicks', 'spend', 'leads', 'revenue'].forEach((k) => { o[k] += r[k]; }); return o; }, { impressions: 0, clicks: 0, spend: 0, leads: 0, revenue: 0 });
+    const d = (x) => ({ ...x, ctr: x.impressions ? x.clicks / x.impressions * 100 : null, cpl: x.leads ? x.spend / x.leads : null, cr: x.clicks ? x.leads / x.clicks * 100 : null });
+    const line = (r, name, key, cls = '') => `<tr class="click ${cls} ${s.ad === key ? 'ad-active' : ''}" data-adrow="${esc(key)}"><td class="strong">${name}</td>
+      <td class="r">${F.money(r.spend)}</td><td class="r">${F.int(r.impressions)}</td><td class="r">${F.int(r.clicks)}</td><td class="r">${F.pct(r.ctr, 2)}</td>
+      <td class="r strong">${F.int(r.leads)}</td><td class="r strong">${F.money(r.cpl)}</td><td class="r">${F.pct(r.cr, 1)}</td>
+      <td style="width:120px"><span class="mini-bar"><span style="width:${sum.leads ? r.leads / sum.leads * 100 : 0}%"></span></span></td></tr>`;
+    return `<div class="card mt"><div class="card-head"><h3>Раскладка по объявлениям</h3><span class="hint">за период · клик по строке — показать только его</span></div>
+      <div class="table-wrap"><table class="t"><thead><tr><th>Объявление</th><th class="r">Расход</th><th class="r">Показы</th><th class="r">Клики</th><th class="r">CTR</th><th class="r">${sales ? 'Конв.' : 'Лиды'}</th><th class="r">CPL</th><th class="r">CR</th><th>Доля лидов</th></tr></thead><tbody>
+      ${line(d(sum), 'Все (суммарно)', '', 'ad-total')}
+      ${s.byAd.map((r) => line(d(r), r.ad_name ? esc(r.ad_name) : '<span class="faint">без названия объявления</span>', r.ad_name || '')).join('')}
+      </tbody></table></div></div>`;
+  }
+
   async function tabSummary(body, p) {
     const [from, to] = periodRange();
-    const s = await get(`/projects/${p.id}/summary?from=${from}&to=${to}`);
+    const s = await get(`/projects/${p.id}/summary?from=${from}&to=${to}${adQ(p)}`);
     const t = s.totals;
     const pv = s.prev;
     const pc = s.pacing;
@@ -380,6 +404,7 @@
     const sales = p.kpi_type === 'sales';
     body.innerHTML = `
       <div class="row between" style="margin-bottom:16px">${periodSeg()}<span class="faint">${F.date(s.from)} — ${F.date(s.to)} · сравнение с ${F.date(s.prevFrom)} — ${F.date(s.prevTo)}</span></div>
+      ${adSeg(s, p)}
       <div class="grid g-4">
         <div class="card kpi"><div class="label">Расход</div><div class="value">${F.money(t.spend)}</div><div class="foot">${F.delta(t.spend, pv.spend, 'none')} <span>было ${F.money(pv.spend)}</span></div></div>
         <div class="card kpi"><div class="label">${sales ? 'Конверсии' : 'Лиды'}</div><div class="value">${F.int(t.leads)}</div><div class="foot">${F.delta(t.leads, pv.leads)} <span>CR ${F.pct(t.cr, 1)}</span></div></div>
@@ -398,9 +423,11 @@
         </div>
         <div class="card">
           <div class="card-head"><h3>План на ${esc(F.month(pc.month).split(' ')[0])}</h3><a class="hint" href="#/p/${p.id}/plan">изменить</a></div>
+          ${s.ad ? '<div class="faint" style="font-size:12px;margin:-8px 0 10px">план и прогноз — по проекту целиком, без фильтра объявления</div>' : ''}
           ${pc.plan ? pacingHtml(pc) : `<div class="empty">План на месяц не задан.<br><a class="btn sm mt" href="#/p/${p.id}/plan">Задать план</a></div>`}
         </div>
       </div>
+      ${adTable(s, sales)}
       <div class="grid g-2 mt">
         <div class="card"><div class="card-head"><h3>Каналы</h3><span class="hint">расход и ${sales ? 'конверсии' : 'лиды'} за период</span></div><div id="hb"></div>
           ${s.byPlatform.length ? `<div class="table-wrap mt"><table class="t"><thead><tr><th>Канал</th><th class="r">Клики</th><th class="r">CTR</th><th class="r">CPC</th><th class="r">${sales ? 'Конв.' : 'Лиды'}</th><th class="r">CPL</th>${sales ? '<th class="r">ROMI</th>' : ''}</tr></thead><tbody>
@@ -413,6 +440,7 @@
         </div>
       </div>`;
     bindPeriod(body, () => tabSummary(body, p));
+    bindAd(body, p, () => tabSummary(body, p));
     const daysInMonth = +monthEnd(pc.month).slice(8);
     Charts.bars($('#c1'), s.daily.map((d) => ({ x: d.date, y: d.spend })), { height: 170, ref: plan.budget ? plan.budget / daysInMonth : null, refLabel: plan.budget ? 'план/день' : '' });
     Charts.bars($('#c2'), s.daily.map((d) => ({ x: d.date, y: d.leads })), { height: 170, color: 'var(--chart-2)', axisFmt: F.int, fmt: F.int });
@@ -440,23 +468,26 @@
   // ---------- campaigns ----------
   async function tabCampaigns(body, p) {
     const [from, to] = periodRange();
-    const s = await get(`/projects/${p.id}/summary?from=${from}&to=${to}`);
+    const s = await get(`/projects/${p.id}/summary?from=${from}&to=${to}${adQ(p)}`);
+    const hasAd = s.byCampaign.some((c) => c.ad_name);
     let filter = '';
     let sort = 'spend';
     const draw = () => {
       const rows = s.byCampaign.filter((c) => !filter || c.platform === filter).sort((a, b) => (b[sort] ?? -1) - (a[sort] ?? -1));
       const tot = rows.reduce((o, r) => { ['impressions', 'clicks', 'spend', 'leads', 'revenue'].forEach((k) => { o[k] += r[k]; }); return o; }, { impressions: 0, clicks: 0, spend: 0, leads: 0, revenue: 0 });
-      $('#ctab').innerHTML = `<table class="t"><thead><tr><th>Канал</th><th>Кампания</th>
+      $('#ctab').innerHTML = `<table class="t"><thead><tr><th>Канал</th><th>Кампания</th>${hasAd ? '<th>Объявление</th>' : ''}
         ${[['impressions', 'Показы'], ['clicks', 'Клики'], ['ctr', 'CTR'], ['spend', 'Расход'], ['leads', 'Лиды'], ['cpl', 'CPL'], ['cr', 'CR']].map(([k, l]) => `<th class="r" style="cursor:pointer" data-s="${k}">${l}${sort === k ? ' ↓' : ''}</th>`).join('')}</tr></thead><tbody>
-        ${rows.map((c) => `<tr><td>${pchip(c.platform)}</td><td class="strong">${esc(c.campaign_name || c.campaign_id || '—')}</td><td class="r">${F.int(c.impressions)}</td><td class="r">${F.int(c.clicks)}</td><td class="r">${F.pct(c.ctr, 2)}</td><td class="r strong">${F.money(c.spend)}</td><td class="r strong">${F.int(c.leads)}</td><td class="r">${F.money(c.cpl)}</td><td class="r">${F.pct(c.cr, 1)}</td></tr>`).join('') || '<tr><td colspan="9"><div class="empty">Нет данных за период</div></td></tr>'}
-        </tbody>${rows.length ? `<tfoot><tr><td colspan="2">Итого</td><td class="r">${F.int(tot.impressions)}</td><td class="r">${F.int(tot.clicks)}</td><td class="r">${F.pct(tot.clicks / tot.impressions * 100, 2)}</td><td class="r">${F.money(tot.spend)}</td><td class="r">${F.int(tot.leads)}</td><td class="r">${F.money(tot.leads ? tot.spend / tot.leads : null)}</td><td class="r">${F.pct(tot.leads / tot.clicks * 100, 1)}</td></tr></tfoot>` : ''}</table>`;
+        ${rows.map((c) => `<tr><td>${pchip(c.platform)}</td><td class="strong">${esc(c.campaign_name || c.campaign_id || '—')}</td>${hasAd ? `<td>${esc(c.ad_name || '')}</td>` : ''}<td class="r">${F.int(c.impressions)}</td><td class="r">${F.int(c.clicks)}</td><td class="r">${F.pct(c.ctr, 2)}</td><td class="r strong">${F.money(c.spend)}</td><td class="r strong">${F.int(c.leads)}</td><td class="r">${F.money(c.cpl)}</td><td class="r">${F.pct(c.cr, 1)}</td></tr>`).join('') || '<tr><td colspan="${hasAd ? 10 : 9}"><div class="empty">Нет данных за период</div></td></tr>'}
+        </tbody>${rows.length ? `<tfoot><tr><td colspan="${hasAd ? 3 : 2}">Итого</td><td class="r">${F.int(tot.impressions)}</td><td class="r">${F.int(tot.clicks)}</td><td class="r">${F.pct(tot.clicks / tot.impressions * 100, 2)}</td><td class="r">${F.money(tot.spend)}</td><td class="r">${F.int(tot.leads)}</td><td class="r">${F.money(tot.leads ? tot.spend / tot.leads : null)}</td><td class="r">${F.pct(tot.leads / tot.clicks * 100, 1)}</td></tr></tfoot>` : ''}</table>`;
       $$('#ctab th[data-s]').forEach((th) => { th.onclick = () => { sort = th.dataset.s; draw(); }; });
     };
     const pls = [...new Set(s.byCampaign.map((c) => c.platform))];
     body.innerHTML = `<div class="row between" style="margin-bottom:16px">${periodSeg()}
         <select class="inp" id="cpf" style="width:auto">${opt('', 'Все каналы', '')}${pls.map((x) => opt(x, plat(x).label, '')).join('')}</select></div>
+      ${adSeg(s, p)}
       <div class="card"><div class="table-wrap" id="ctab"></div></div>`;
     bindPeriod(body, () => tabCampaigns(body, p));
+    bindAd(body, p, () => tabCampaigns(body, p));
     $('#cpf').onchange = (e) => { filter = e.target.value; draw(); };
     draw();
   }
@@ -803,7 +834,14 @@
       const x = d[role];
       return `<div class="sheet-row">
         <div class="sheet-title"><b>${title}</b><div class="faint" style="font-size:12px">${hint}</div></div>
-        <input class="inp" name="${role}_url" placeholder="https://docs.google.com/spreadsheets/d/…" value="${esc(x ? x.url : '')}">
+        <div class="stack" style="gap:6px">
+          <textarea class="inp sheet-urls" name="${role}_url" rows="${Math.max(1, (x ? x.url.split('\n').length : 1))}" placeholder="https://docs.google.com/spreadsheets/d/… (несколько листов или таблиц — по одной ссылке в строке)">${esc(x ? x.url : '')}</textarea>
+          <div class="row" style="gap:14px">
+            <label class="checkline" style="font-size:12.5px"><input type="checkbox" name="${role}_all" ${x && x.all_sheets ? 'checked' : ''}>все листы таблицы</label>
+            <label class="checkline" style="font-size:12.5px">курс валюты ×<input class="inp" name="${role}_rate" value="${esc(x ? x.rate : '')}" placeholder="1" style="width:80px;padding:4px 8px" inputmode="decimal"></label>
+            ${role === 'spend' ? `<label class="checkline" style="font-size:12.5px">+ НДС<input class="inp" name="${role}_vat" value="${esc(x ? x.vat : '')}" placeholder="0" style="width:56px;padding:4px 8px" inputmode="decimal">%</label>` : ''}
+          </div>
+        </div>
         <label class="f" style="min-width:170px">Канал, если не указан<select class="inp" name="${role}_platform">${adPl.map((o) => opt(o.id, o.label, x ? x.default_platform : 'other')).join('')}</select></label>
         <div class="sheet-status">${st(x)}</div>
       </div>`;
@@ -822,14 +860,14 @@
       btn.disabled = true; btn.textContent = 'Загружаю…';
       try {
         const body = {};
-        ['leads', 'spend'].forEach((role) => { body[role] = { url: v[`${role}_url`], default_platform: v[`${role}_platform`] }; });
+        ['leads', 'spend'].forEach((role) => { body[role] = { url: v[`${role}_url`], default_platform: v[`${role}_platform`], rate: v[`${role}_rate`], vat: v[`${role}_vat`], all_sheets: v[`${role}_all`] }; });
         const r = await put(`/projects/${p.id}/sheets`, body);
         const msgs = Object.entries(r.results).map(([role, x]) => {
           const name = role === 'leads' ? 'Лиды' : 'Расходы';
           if (x.removed !== undefined) return x.removed ? `${name}: таблица отключена` : '';
           if (!x.ok) return `${name}: ${x.error}`;
           const m = x.meta || {};
-          return `${name}: ${x.rows} строк${m.junk ? `, спам/дубли ${m.junk}` : ''}${m.badDate ? `, без даты ${m.badDate}` : ''}`;
+          return `${name}: ${m.sheets > 1 ? `листов ${m.sheets}, ` : ""}${m.used ?? x.rows} записей${m.junk ? `, спам/дубли ${m.junk}` : ''}${m.badDate ? `, без даты ${m.badDate}` : ''}`;
         }).filter(Boolean);
         toast(msgs.join(' · ') || 'Сохранено', Object.values(r.results).some((x) => x.ok === false));
         onSaved();

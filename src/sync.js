@@ -15,13 +15,13 @@ async function upsertRows(integration, rows, { replace = false } = {}) {
     if (replace) await client.query('DELETE FROM stats_daily WHERE integration_id=$1', [integration.id]);
     for (const r of rows) {
       await client.query(
-        `INSERT INTO stats_daily (integration_id, project_id, platform, date, campaign_id, campaign_name, impressions, clicks, spend, leads, revenue)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        `INSERT INTO stats_daily (integration_id, project_id, platform, date, campaign_id, campaign_name, impressions, clicks, spend, leads, revenue, ad_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (integration_id, date, campaign_id) DO UPDATE SET
-           campaign_name=EXCLUDED.campaign_name, impressions=EXCLUDED.impressions, clicks=EXCLUDED.clicks,
+           campaign_name=EXCLUDED.campaign_name, ad_name=EXCLUDED.ad_name, impressions=EXCLUDED.impressions, clicks=EXCLUDED.clicks,
            spend=EXCLUDED.spend, leads=EXCLUDED.leads, revenue=EXCLUDED.revenue`,
         [integration.id, integration.project_id, r.platform || integration.platform, r.date, String(r.campaign_id || ''), r.campaign_name || null,
-          Math.round(r.impressions || 0), Math.round(r.clicks || 0), r.spend || 0, r.leads || 0, r.revenue || 0]
+          Math.round(r.impressions || 0), Math.round(r.clicks || 0), r.spend || 0, r.leads || 0, r.revenue || 0, r.ad_name || null]
       );
     }
     await client.query('COMMIT');
