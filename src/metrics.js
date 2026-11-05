@@ -96,8 +96,23 @@ async function compareItems(projectId, from, to, items) {
     const map = new Map(daily.map((d) => [d.date, d]));
     const series = [];
     for (let d = from; d <= to; d = addDays(d, 1)) series.push(map.get(d) || { date: d, impressions: 0, clicks: 0, spend: 0, leads: 0, revenue: 0 });
+    // «День кампании»: день 1 = первый день с активностью (показы/расход/клики/заявки)
+    // за всю историю, не только за выбранный период. Ряд — от старта до конца периода, до 365 дней.
+    const st = await db.one(
+      `SELECT min(date) AS start FROM stats_daily WHERE project_id=$1 AND platform=$2 AND campaign_id=$3 AND date <= $4
+         AND (spend > 0 OR impressions > 0 OR clicks > 0 OR leads > 0)`, [projectId, it.platform, it.campaign_id, to]);
+    const life = [];
+    if (st && st.start) {
+      const lifeTo = addDays(st.start, 364) < to ? addDays(st.start, 364) : to;
+      const ld = await db.all(`SELECT date, ${SUMS} FROM stats_daily WHERE project_id=$1 AND platform=$2 AND campaign_id=$3 AND date BETWEEN $4 AND $5 GROUP BY date`,
+        [projectId, it.platform, it.campaign_id, st.start, lifeTo]);
+      const lm = new Map(ld.map((d) => [d.date, d]));
+      for (let d = st.start, n = 1; d <= lifeTo; d = addDays(d, 1), n++) life.push({ day: n, ...(lm.get(d) || { date: d, impressions: 0, clicks: 0, spend: 0, leads: 0, revenue: 0 }), date: d });
+    }
     out.push({
       key: `${it.platform}::${it.campaign_id}`,
+      start: st && st.start ? st.start : null,
+      life,
       platform: it.platform,
       campaign_id: it.campaign_id,
       name: tot.campaign_name || it.campaign_id || '—',

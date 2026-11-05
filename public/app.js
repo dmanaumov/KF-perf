@@ -581,9 +581,13 @@
         <div><div class="chart-title">CPL (меньше — лучше)</div><div id="cb-cpl"></div></div>
       </div>
       <div class="row between mt"><div class="chart-title" style="margin:0">Динамика по дням</div>
-        <div class="seg" id="cmpm"><button data-m="leads" class="active">Лиды</button><button data-m="spend">Расход</button><button data-m="cpl">CPL</button></div></div>
+        <div class="row" style="gap:8px">
+          <div class="seg" id="cmpx"><button data-x="date" class="active">По датам</button><button data-x="day" title="День 1 — первый день с показами, расходом или лидами у каждой гипотезы">По дню кампании</button></div>
+          <div class="seg" id="cmpm"><button data-m="leads" class="active">Лиды</button><button data-m="spend">Расход</button><button data-m="cpl">CPL</button></div>
+        </div></div>
+      <div class="faint hidden" id="cmpxhint" style="font-size:12px;margin-top:6px">День 1 — первый день активности каждой гипотезы (показы, расход или лиды за всю историю). Так гипотезы, запущенные в разные даты, сравниваются с одной точки старта.</div>
       <div class="chart" id="cmpchart" style="margin-top:8px"></div>
-      <div class="legend">${list.map((x) => `<span><i style="background:${x.color}"></i>${esc(x.label)}</span>`).join('')}</div>`, {
+      <div class="legend" id="cmpleg"></div>`, {
       wide: true,
       onMount: (el) => {
         el.querySelector('.modal').classList.add('xwide');
@@ -591,13 +595,31 @@
         hb('#cb-spend', 'spend', F.money);
         hb('#cb-leads', 'leads', F.int);
         hb('#cb-cpl', 'cpl', F.money);
-        const drawLine = (m) => Charts.multiLine($('#cmpchart', el), list.map((x) => ({
-          name: x.label,
-          color: x.color,
-          points: x.daily.map((dd) => ({ x: dd.date, y: m === 'cpl' ? (dd.leads ? dd.spend / dd.leads : null) : dd[m] })),
-        })), { height: 240, axisFmt: m === 'leads' ? F.int : F.moneyShort, fmt: m === 'leads' ? F.int : F.money });
-        drawLine('leads');
-        $$('#cmpm button', el).forEach((b) => { b.onclick = () => { $$('#cmpm button', el).forEach((x) => x.classList.toggle('active', x === b)); drawLine(b.dataset.m); }; });
+        let metric = 'leads';
+        let axis = 'date';
+        const val = (dd, m) => (m === 'cpl' ? (dd.leads ? dd.spend / dd.leads : null) : dd[m]);
+        const drawLine = () => {
+          const byDay = axis === 'day';
+          Charts.multiLine($('#cmpchart', el), list.map((x) => ({
+            name: x.label,
+            color: x.color,
+            points: byDay
+              ? x.life.map((dd) => ({ x: dd.day, y: val(dd, metric), sub: F.dateShort(dd.date) }))
+              : x.daily.map((dd) => ({ x: dd.date, y: val(dd, metric) })),
+          })), {
+            height: 240,
+            axisFmt: metric === 'leads' ? F.int : F.moneyShort,
+            fmt: metric === 'leads' ? F.int : F.money,
+            xFmt: byDay ? (d) => `д.${d.x}` : undefined,
+            titleFmt: byDay ? (d) => `День ${d.x}` : undefined,
+          });
+          $('#cmpleg', el).innerHTML = list.map((x) => `<span><i style="background:${x.color}"></i>${esc(x.label)}${byDay && x.start ? ` <span class="faint">· старт ${F.date(x.start)}</span>` : ''}${byDay && !x.start ? ' <span class="faint">· нет активности</span>' : ''}</span>`).join('');
+          $('#cmpxhint', el).classList.toggle('hidden', !byDay);
+          $('#cmppdf', el).href = `/api/projects/${p.id}/compare.pdf?${qs}${byDay ? '&axis=day' : ''}`;
+        };
+        drawLine();
+        $$('#cmpm button', el).forEach((b) => { b.onclick = () => { $$('#cmpm button', el).forEach((x) => x.classList.toggle('active', x === b)); metric = b.dataset.m; drawLine(); }; });
+        $$('#cmpx button', el).forEach((b) => { b.onclick = () => { $$('#cmpx button', el).forEach((x) => x.classList.toggle('active', x === b)); axis = b.dataset.x; drawLine(); }; });
         $('#cmppdf', el).onclick = () => toast('Готовлю PDF…');
       },
     });

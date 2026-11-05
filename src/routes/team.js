@@ -248,7 +248,7 @@ function compareParams(req) {
   if (from > to) return { error: 'Неверный период' };
   if (items.length < 2) return { error: 'Выберите хотя бы две гипотезы' };
   if (items.length > 8) return { error: 'Можно сравнить не больше 8 гипотез' };
-  return { from, to, items };
+  return { from, to, items, axis: req.query.axis === 'day' ? 'day' : 'date' };
 }
 r.get(`${P}/compare`, loadProject, wrap(async (req, res) => {
   const q = compareParams(req);

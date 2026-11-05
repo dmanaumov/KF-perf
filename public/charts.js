@@ -242,7 +242,8 @@
   function multiLine(el, series, opts = {}) {
     mount(el, () => {
       const f = frame(el, opts);
-      const xs = (series[0] && series[0].points) || [];
+      // ось X — по самой длинной серии (при «дне кампании» серии разной длины)
+      const xs = series.reduce((a, sr) => (sr.points.length > a.length ? sr.points : a), []);
       const vals = series.flatMap((sr) => sr.points.map((p) => p.y)).filter((v) => v !== null && v !== undefined && isFinite(v));
       const max = niceMax(Math.max(...vals, 0) * 1.1);
       const xOf = (i) => (xs.length === 1 ? f.m.l + f.iw / 2 : f.m.l + f.iw * i / (xs.length - 1));
@@ -260,13 +261,15 @@
         s += `<path d="${d}" fill="none" stroke="${sr.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
         if (xs.length <= 20) sr.points.forEach((pt, i) => { if (pt.y !== null && pt.y !== undefined && isFinite(pt.y)) s += `<circle cx="${xOf(i)}" cy="${yOf(pt.y)}" r="3" fill="${sr.color}" stroke="var(--surface)" stroke-width="1.5"/>`; });
       });
-      s += axisX(f, xs, xOf, (d) => F.dateShort(d.x));
+      const xLab = opts.xFmt || ((d) => F.dateShort(d.x));
+      s += axisX(f, xs, xOf, xLab);
       s += `<line class="hl" y1="${f.m.t}" y2="${f.m.t + f.ih}" style="display:none"/>`;
       s += `<rect class="hit" x="${f.m.l - 6}" y="${f.m.t}" width="${f.iw + 12}" height="${f.ih}"/></svg>`;
       el.insertAdjacentHTML('beforeend', s);
       const fmt = opts.fmt || F.int;
-      attachHover(el, el.querySelector('svg'), f, xs, xOf, (d, i) => `${F.date(d.x)}<br>${series.map((sr) =>
-        `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${sr.color};margin-right:5px"></span>${esc(sr.name)}: <b>${fmt(sr.points[i].y)}</b>`).join('<br>')}`);
+      const title = opts.titleFmt || ((d) => F.date(d.x));
+      attachHover(el, el.querySelector('svg'), f, xs, xOf, (d, i) => `${title(d)}<br>${series.map((sr) =>
+        `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${sr.color};margin-right:5px"></span>${esc(sr.name)}: <b>${sr.points[i] ? fmt(sr.points[i].y) : '—'}</b>${sr.points[i] && sr.points[i].sub ? ` <span style="opacity:.7">${sr.points[i].sub}</span>` : ''}`).join('<br>')}`);
     });
   }
 

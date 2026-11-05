@@ -259,7 +259,8 @@ async function send(res, project, { from, to, ad }) {
 // ---------- PDF: сравнение гипотез ----------
 const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
 
-async function buildCompare(project, { from, to, items }) {
+async function buildCompare(project, { from, to, items, axis = 'date' }) {
+  const byDay = axis === 'day';
   const cur = project.currency || 'RUB';
   const cmp = await metrics.compareItems(project.id, from, to, items);
   const list = cmp.items.map((x, i) => ({ ...x, color: SERIES[i % SERIES.length], label: x.ad_name ? `${x.name} · ${x.ad_name}` : x.name }));
@@ -353,8 +354,11 @@ async function buildCompare(project, { from, to, items }) {
     doc.font('B').fontSize(10).fillColor(C.ink).text(title, L, doc.y + 10);
     const top = doc.y + 8;
     const ch = 110;
-    const days = list[0].daily.map((d) => d.date);
-    const max = Math.max(...list.flatMap((it) => it.daily.map((d) => d[key] || 0)), 0) || 1;
+    // по датам — общий календарь периода; по дню кампании — ряды от старта каждой гипотезы
+    const rows = (it) => (byDay ? it.life : it.daily);
+    const n = Math.max(...list.map((it) => rows(it).length), 1);
+    const days = byDay ? Array.from({ length: n }, (_, i) => i + 1) : list[0].daily.map((d) => d.date);
+    const max = Math.max(...list.flatMap((it) => rows(it).map((d) => d[key] || 0)), 0) || 1;
     const x0 = L + 34;
     const xw = CW - 34;
     const xAt = (i) => (days.length === 1 ? x0 + xw / 2 : x0 + (xw * i) / (days.length - 1));
@@ -364,7 +368,8 @@ async function buildCompare(project, { from, to, items }) {
       doc.font('R').fontSize(6.5).fillColor(C.ink3).text(fmtAxis((max * g) / 2), L - 4, gy - 4, { width: 34, align: 'right' });
     }
     list.forEach((it) => {
-      it.daily.forEach((d, i) => {
+      if (!rows(it).length) return;
+      rows(it).forEach((d, i) => {
         const px = xAt(i);
         const py = top + ch - ((d[key] || 0) / max) * ch;
         if (i === 0) doc.moveTo(px, py); else doc.lineTo(px, py);
@@ -372,22 +377,24 @@ async function buildCompare(project, { from, to, items }) {
       doc.lineWidth(1.6).strokeColor(it.color).lineJoin('round').stroke();
     });
     const step = Math.ceil(days.length / 7);
-    days.forEach((d, i) => { if (i % step === 0 || i === days.length - 1) doc.font('R').fontSize(6.5).fillColor(C.ink3).text(fmtDate(d).slice(0, 5), xAt(i) - 15, top + ch + 4, { width: 30, align: 'center' }); });
+    days.forEach((d, i) => { if (i % step === 0 || i === days.length - 1) doc.font('R').fontSize(6.5).fillColor(C.ink3).text(byDay ? `д.${d}` : fmtDate(d).slice(0, 5), xAt(i) - 15, top + ch + 4, { width: 30, align: 'center' }); });
     // легенда
     let lx = L;
     let ly = top + ch + 18;
     list.forEach((it) => {
-      const w = Math.min(doc.font('R').fontSize(7.5).widthOfString(it.label) + 22, CW);
+      const lbl = byDay && it.start ? `${it.label} (старт ${fmtDate(it.start).slice(0, 5)})` : it.label;
+      const w = Math.min(doc.font('R').fontSize(7.5).widthOfString(lbl) + 22, CW);
       if (lx + w > R) { lx = L; ly += 12; }
       doc.roundedRect(lx, ly + 1, 8, 8, 2).fill(it.color);
-      doc.fillColor(C.ink2).text(it.label, lx + 12, ly, { lineBreak: false });
+      doc.fillColor(C.ink2).text(lbl, lx + 12, ly, { lineBreak: false });
       lx += w + 8;
     });
     doc.y = ly + 16;
   };
   const short = (v) => (v >= 1000 ? `${Math.round(v / 100) / 10}к` : `${Math.round(v * 10) / 10}`);
-  lineChart('Заявки по дням', 'leads', short);
-  lineChart(`Затраты по дням, ${SYM[cur] || '₽'}`, 'spend', short);
+  const sfx = byDay ? ' по дням кампании (день 1 — старт гипотезы)' : ' по дням';
+  lineChart(`Заявки${sfx}`, 'leads', short);
+  lineChart(`Затраты${sfx}, ${SYM[cur] || '₽'}`, 'spend', short);
 
   ensure(40);
   doc.font('R').fontSize(7.5).fillColor(C.ink3).text(['Стоимость заявки = затраты / заявки; конверсия в заявку = заявки / переходы в форму.', note].filter(Boolean).join(' '), L, doc.y + 6, { width: CW });
